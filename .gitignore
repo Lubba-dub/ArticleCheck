@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual env
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Project specific
+.env
+*.log
+.chktexrc
+reports/
+.worktrees/
+.cache/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Repos (cloned reference projects)
+repos/
+
+# Test fixtures (large test data)
+tests/fixtures/*.pdf
+tests/fixtures/*.docx
+tests/fixtures/*.tex
+!tests/fixtures/*.min.tex
