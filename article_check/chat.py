@@ -156,6 +156,10 @@ class ChatSession:
                     break
             return ("fix", params)
 
+        # 配置 — 必须优先于"看看"(review)
+        if any(kw in t for kw in ["配置", "config", "设置", "环境", "key", "apikey"]):
+            return ("config", {})
+
         # 文献
         if any(kw in t for kw in ["引用", "文献", "reference", "citation", "bib", "doi"]):
             return ("reference", {"path": self.extract_path(text)})
@@ -164,13 +168,9 @@ class ChatSession:
         if any(kw in t for kw in ["批量", "batch", "所有论文", "文件夹里", "多个", "都审", "都查"]):
             return ("batch", {"path": self.extract_path(text)})
 
-        # 审查
+        # 审查 — 放在最后，因为"看看"等词太通用
         if any(kw in t for kw in ["审", "review", "看看", "评价", "评估", "审查论文", "检查论文"]):
             return ("review", {"path": self.extract_path(text)})
-
-        # 配置
-        if any(kw in t for kw in ["配置", "config", "设置", "环境", "key", "apikey"]):
-            return ("config", {})
 
         # 报告
         if any(kw in t for kw in ["报告", "report", "结果", "上次"]):
