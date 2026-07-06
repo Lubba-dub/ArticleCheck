@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>引文网络图谱</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  body {{ font-family: "Microsoft YaHei", sans-serif; margin: 0; background: #f8f9fa; }}
+  .graph-container {{ width: 100vw; height: 100vh; position: relative; }}
+  svg {{ width: 100%; height: 100%; }}
+  .node circle {{ stroke: #fff; stroke-width: 2px; cursor: pointer; }}
+  .node text {{ font-size: 12px; pointer-events: none; }}
+  .link {{ stroke: #999; stroke-opacity: 0.6; stroke-width: 1.5; }}
+  .tooltip {{
+    position: absolute; background: rgba(0,0,0,0.8); color: #fff;
+    padding: 8px 12px; border-radius: 6px; font-size: 13px;
+    pointer-events: none; max-width: 300px;
+  }}
+  .legend {{ position: absolute; bottom: 20px; left: 20px; background: #fff;
+    padding: 12px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }}
+  .color-bar {{ display: flex; align-items: center; gap: 8px; margin: 4px 0; }}
+  .color-sample {{ width: 16px; height: 16px; border-radius: 50%; }}
+  h3 {{ margin: 0 0 8px; font-size: 14px; }}
+</style>
+</head>
+<body>
+<div class="graph-container">
+  <svg></svg>
+  <div class="tooltip" style="display:none"></div>
+  <div class="legend"></div>
+</div>
+<script>
+const DATA = {"nodes": [{"id": "p1", "title": "Pleasure-arousal-dominance", "year": 1996, "citations": 5000, "group": "1995s"}, {"id": "p2", "title": "Detecting music-induced emotion", "year": 2022, "citations": 120, "group": "2020s"}, {"id": "p3", "title": "HKU956 dataset", "year": 2024, "citations": 45, "group": "2020s"}, {"id": "p4", "title": "Music emotion regulation review", "year": 2024, "citations": 30, "group": "2020s"}, {"id": "p5", "title": "AI music therapy methods", "year": 2024, "citations": 68, "group": "2020s"}], "links": [], "groups": ["1995s", "2020s"]};
+
+const width = window.innerWidth, height = window.innerHeight;
+const svg = d3.select("svg"), tooltip = d3.select(".tooltip");
+
+const color = d3.scaleOrdinal(d3.schemeTableau10);
+
+const simulation = d3.forceSimulation(DATA.nodes)
+  .force("link", d3.forceLink(DATA.links).id(d => d.id).distance(150))
+  .force("charge", d3.forceManyBody().strength(-300))
+  .force("center", d3.forceCenter(width / 2, height / 2));
+
+const link = svg.append("g").selectAll("line")
+  .data(DATA.links).join("line").attr("class", "link");
+
+const node = svg.append("g").selectAll("g")
+  .data(DATA.nodes).join("g").attr("class", "node")
+  .call(d3.drag()
+    .on("start", (e, d) => {{ if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }})
+    .on("drag", (e, d) => {{ d.fx = e.x; d.fy = e.y; }})
+    .on("end", (e, d) => {{ if (!e.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }})
+  );
+
+node.append("circle")
+  .attr("r", d => Math.max(5, Math.min(20, (d.citations || 5) * 1.5)))
+  .attr("fill", d => color(d.group || 0))
+  .on("mouseover", (e, d) => {{
+    tooltip.style("display", "block")
+      .html(`<b>${{d.title}}</b><br>${{d.year || '?'}} | 被引: ${{d.citations || 0}}`)
+      .style("left", (e.pageX + 12) + "px").style("top", (e.pageY - 12) + "px");
+  }})
+  .on("mouseout", () => tooltip.style("display", "none"));
+
+node.append("text")
+  .text(d => d.title?.substring(0, 20) || "")
+  .attr("x", d => Math.max(5, Math.min(20, (d.citations || 5) * 1.5)) + 6)
+  .attr("y", 4);
+
+simulation.on("tick", () => {{
+  link.attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+      .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+  node.attr("transform", d => `translate(${{d.x}},${{d.y}})`);
+}});
+
+const legend = d3.select(".legend");
+legend.html("<h3>📊 引文网络</h3>");
+DATA.groups?.forEach((g, i) => {{
+  legend.append("div").attr("class", "color-bar")
+    .html(`<span class="color-sample" style="background:${{color(i)}}"></span> ${{g}}`);
+}});
+</script>
+</body>
+</html>

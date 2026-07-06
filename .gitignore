@@ -43,3 +43,4 @@ test_fixtures/*.docx
 test_fixtures/*.pdf
 test_fixtures/*.tex
 test_fixtures/* !*.min.tex
+test_fixtures/*_copy.*
