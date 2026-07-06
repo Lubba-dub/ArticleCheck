@@ -530,6 +530,13 @@ def cmd_chat(args):
     session.run()
 
 
+def cmd_web(args):
+    """启动 Web 图形界面"""
+    setup_logging(args.verbose)
+    from article_check.web import run_server
+    run_server(host=args.host, port=args.port)
+
+
 def _print_result(result):
     """打印审查结果到控制台"""
     score = result.overall_score or 0
@@ -636,6 +643,12 @@ def main():
     p_chat = subparsers.add_parser("chat", help="💬 自然语言对话模式 — 像聊天一样审查/修正论文")
     p_chat.add_argument("-v", "--verbose", action="store_true")
 
+    # web — 图形化界面
+    p_web = subparsers.add_parser("web", help="🌐 启动 Web 图形界面 (FastAPI + React)")
+    p_web.add_argument("--host", default="127.0.0.1", help="监听地址")
+    p_web.add_argument("--port", type=int, default=8765, help="监听端口")
+    p_web.add_argument("-v", "--verbose", action="store_true")
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -653,6 +666,7 @@ def main():
         "template": cmd_template,
         "start": cmd_start,
         "chat": cmd_chat,
+        "web": cmd_web,
     }
 
     cmd = commands.get(args.command)
