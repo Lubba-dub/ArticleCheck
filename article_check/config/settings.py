@@ -1,11 +1,29 @@
 """
-全局配置管理 — 支持环境变量覆盖、JSON/YAML 配置、模板匹配
+全局配置管理 — 支持环境变量覆盖、.env 文件、JSON/YAML 配置
 """
 import os
 import json
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
 from typing import Optional
+
+# 自动加载 .env 文件（如果存在）
+_env_path = Path(os.getcwd()) / ".env"
+if _env_path.exists():
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(str(_env_path))
+    except ImportError:
+        # 回退：手动解析简单的 KEY=VALUE 文件
+        try:
+            with open(_env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        os.environ.setdefault(k.strip(), v.strip())
+        except Exception:
+            pass
 
 
 @dataclass
