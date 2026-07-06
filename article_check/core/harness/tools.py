@@ -251,6 +251,56 @@ def create_reference_tools() -> Dict[str, ToolSpec]:
         required=["keywords", "existing_refs"],
     )
 
+    # 文献提取
+    registry.add(
+        category="reference",
+        name="extract_references",
+        description="从论文中提取所有参考文献条目",
+        parameters={
+            "paper_path": {"type": "string", "description": "论文文件路径"}
+        },
+        required=["paper_path"],
+    )
+
+    # 文献交叉验证
+    registry.add(
+        category="reference",
+        name="cross_check_references",
+        description="验证正文引用与参考文献表的一致性，检测缺失/多余引用",
+        parameters={
+            "paper_path": {"type": "string", "description": "论文文件路径"}
+        },
+        required=["paper_path"],
+    )
+
+    # 文献列表生成
+    registry.add(
+        category="reference",
+        name="generate_bibliography",
+        description="按IEEE/APA/ACM格式生成完整的参考文献列表",
+        parameters={
+            "paper_path": {"type": "string", "description": "论文文件路径"},
+            "style": {
+                "type": "string",
+                "enum": ["ieee", "apa", "acm", "springer", "nature"],
+                "description": "参考文献格式",
+                "default": "ieee"
+            }
+        },
+        required=["paper_path"],
+    )
+
+    # DOI 批量验证
+    registry.add(
+        category="reference",
+        name="verify_doi_api",
+        description="验证 DOI 并通过 CrossRef API 获取元数据",
+        parameters={
+            "doi": {"type": "string", "description": "DOI 标识符"}
+        },
+        required=["doi"],
+    )
+
     return dict(registry._tools)
 
 

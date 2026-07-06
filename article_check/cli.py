@@ -62,6 +62,16 @@ def create_orchestrator() -> Orchestrator:
     harness.get_tool("check_docx_format").fn = check_docx_format
     harness.get_tool("check_structure").fn = check_structure
 
+    # 绑定文献工具
+    from article_check.mcp.tools.reference_engine_tools import (
+        extract_references, cross_check_references,
+        generate_bibliography, verify_doi_api, check_ref_quality_api,
+    )
+    harness.get_tool("extract_references").fn = extract_references
+    harness.get_tool("cross_check_references").fn = cross_check_references
+    harness.get_tool("generate_bibliography").fn = generate_bibliography
+    harness.get_tool("verify_doi_api").fn = verify_doi_api
+
     # 创建编排器
     orchestrator = Orchestrator(harness=harness)
 
