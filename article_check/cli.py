@@ -359,6 +359,158 @@ def cmd_config(args):
     print(json.dumps(d, ensure_ascii=False, indent=2))
 
 
+def cmd_start(args):
+    """🎯 交互式一键启动 — 智能体主菜单"""
+    import shutil
+
+    setup_logging(args.verbose)
+    width = shutil.get_terminal_size().columns
+
+    def banner():
+        print()
+        print("=" * width)
+        title = "  📋 Article Check — 学术论文审查智能体  "
+        print(f"  \033[1;36m{title:^{width-4}}\033[0m")
+        print(f"  \033[2mv{__version__} | DeepSeek API | 格式+文献+内容审查\033[0m")
+        print("=" * width)
+        print()
+
+    def check_env():
+        """环境检查"""
+        status = []
+        # API Key
+        if config.deepseek.api_key:
+            status.append(("✅ DeepSeek API", f"已配置 ({config.deepseek.api_key[:8]}...)"))
+        else:
+            status.append(("⚠️  DeepSeek API", "未配置 → 仅格式+文献检查"))
+
+        # 模板
+        from article_check.rules.registry import template_registry
+        n = template_registry.count
+        status.append(("📌 格式模板", f"{n} 个内置 ({', '.join(t.name for t in template_registry.list_all()[:3])}...)"))
+
+        # chktex
+        try:
+            import subprocess
+            r = subprocess.run(["chktex", "--version"], capture_output=True, timeout=3)
+            chk = "✅ 可用" if r.returncode == 0 else "⚠️  未安装"
+        except Exception:
+            chk = "⚠️  未安装（使用正则降级）"
+        status.append(("🔧 LaTeX chktex", chk))
+
+        # git
+        try:
+            import subprocess
+            r = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=3)
+            git = f"✅ {r.stdout.strip()}" if r.returncode == 0 else "⚠️  not a repo"
+        except Exception:
+            git = "⚠️  git not found"
+        status.append(("🔖 Git", git))
+
+        for label, val in status:
+            print(f"   {label:20s}  {val}")
+        print()
+
+    def show_menu() -> str:
+        print(f"  ┌────────────────────────────────────────────┐")
+        print(f"  │  \033[1m请选择操作\033[0m                                   │")
+        print(f"  ├────────────────────────────────────────────┤")
+        print(f"  │  \033[1;36m1\033[0m  审查单篇论文                              │")
+        print(f"  │  \033[1;36m2\033[0m  批量审查目录                              │")
+        print(f"  │  \033[1;36m3\033[0m  格式检查（仅本地规则，零token）            │")
+        print(f"  │  \033[1;36m4\033[0m  模板管理                                   │")
+        print(f"  │  \033[1;36m5\033[0m  查看配置与环境检查                         │")
+        print(f"  │  \033[1;36m6\033[0m  自动检测论文模板                           │")
+        print(f"  │  \033[1;31mq\033[0m  退出                                       │")
+        print(f"  └────────────────────────────────────────────┘")
+        return input("  \033[1m请输入 [1-6/q]:\033[0m ").strip()
+
+    while True:
+        banner()
+        check_env()
+        choice = show_menu()
+
+        if choice == "1":
+            path = input("  📄 论文路径: ").strip().strip('"').strip("'")
+            if path:
+                from pathlib import Path
+                p = Path(path)
+                if p.exists():
+                    print()
+                    cmd_review(argparse.Namespace(
+                        paper=path, api_key=None, depth="auto", verbose=args.verbose
+                    ))
+                else:
+                    print(f"  ❌ 文件不存在: {p}")
+            input("  \n  按回车继续...")
+
+        elif choice == "2":
+            path = input("  📁 论文目录: ").strip().strip('"').strip("'")
+            if path:
+                p = Path(path)
+                if p.is_dir():
+                    print()
+                    cmd_batch(argparse.Namespace(
+                        directory=path, api_key=None, concurrent=None,
+                        types=["latex", "docx", "pdf"], verbose=args.verbose
+                    ))
+                else:
+                    print(f"  ❌ 目录不存在: {p}")
+            input("  \n  按回车继续...")
+
+        elif choice == "3":
+            path = input("  📄 论文路径: ").strip().strip('"').strip("'")
+            if path:
+                p = Path(path)
+                if p.exists():
+                    print()
+                    cmd_format(argparse.Namespace(paper=path, verbose=args.verbose))
+                else:
+                    print(f"  ❌ 文件不存在: {p}")
+            input("  \n  按回车继续...")
+
+        elif choice == "4":
+            print()
+            from article_check.rules.registry import template_registry
+            tpls = template_registry.list_all()
+            print(f"  已注册模板 ({len(tpls)}):")
+            for i, tpl in enumerate(tpls, 1):
+                print(f"    {i}. {tpl.name} [{tpl.category}]")
+            sel = input("  \n  查看详情（输入编号，回车返回）: ").strip()
+            if sel.isdigit() and 1 <= int(sel) <= len(tpls):
+                import dataclasses, json
+                d = dataclasses.asdict(tpls[int(sel) - 1])
+                print(json.dumps(d, ensure_ascii=False, indent=2))
+            input("  \n  按回车继续...")
+
+        elif choice == "5":
+            print()
+            cmd_config(None)
+            input("  \n  按回车继续...")
+
+        elif choice == "6":
+            path = input("  📄 论文路径: ").strip().strip('"').strip("'")
+            if path:
+                p = Path(path)
+                if p.exists():
+                    print()
+                    cmd_template(argparse.Namespace(
+                        action="auto-detect", paper=path, name=None,
+                        query=None, template_name=None, verbose=args.verbose
+                    ))
+                else:
+                    print(f"  ❌ 文件不存在: {p}")
+            input("  \n  按回车继续...")
+
+        elif choice.lower() == "q":
+            print("\n  👋 再见！")
+            break
+
+        else:
+            print("  ⚠️  无效输入，请输入 1-6 或 q")
+            input("  按回车继续...")
+
+
 def _print_result(result):
     """打印审查结果到控制台"""
     score = result.overall_score or 0
@@ -396,16 +548,19 @@ def _print_result(result):
 
 def main():
     parser = argparse.ArgumentParser(
-        description=f"📋 论文审查智能体 v{__version__}",
+        description=f"学术论文审查智能体 v{__version__}",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  python -m article_check review paper.tex              # 审查单篇 LaTeX
-  python -m article_check review paper.docx --api-key sk-xxx  # 审查 Word
-  python -m article_check batch ./papers/                # 批量审查目录
-  python -m article_check batch ./papers/ --concurrent 8  # 8 并发
-  python -m article_check format paper.tex               # 仅格式检查
-  python -m article_check tools                          # 列出工具
+  python run.py                            # 🎯 交互式一键启动
+  python run.py paper.tex                  # 直接审查单篇
+  python run.py papers/                    # 直接批量审查目录
+  python -m article_check start            # 交互式菜单
+  python -m article_check review paper.tex # 审查单篇
+  python -m article_check batch papers/    # 批量审查
+  python -m article_check format paper.tex # 仅格式检查
+  python -m article_check template list    # 列出模板
+  python -m article_check template check --template-name "IEEE Transactions" --paper paper.tex
         """,
     )
     parser.add_argument(
@@ -454,6 +609,10 @@ def main():
     p_template.add_argument("--template-name", help="模板名称（check 用）")
     p_template.add_argument("-v", "--verbose", action="store_true")
 
+    # start — 交互式一键启动
+    p_start = subparsers.add_parser("start", help="交互式一键启动 — 智能体主菜单")
+    p_start.add_argument("-v", "--verbose", action="store_true")
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -469,6 +628,7 @@ def main():
         "tools": cmd_tools,
         "config": cmd_config,
         "template": cmd_template,
+        "start": cmd_start,
     }
 
     cmd = commands.get(args.command)
