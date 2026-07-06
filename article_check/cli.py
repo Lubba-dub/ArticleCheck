@@ -180,6 +180,118 @@ def cmd_batch(args):
     print(f"  完成: {sum(1 for r in results if not r.errors)}/{len(results)}")
 
 
+def cmd_template(args):
+    """模板管理命令"""
+    from article_check.rules.template import FormatTemplate, PageConstraint, \
+        FontConstraint, SectionConstraint, ReferenceConstraint, \
+        FigureTableConstraint, TitlePageConstraint
+    from article_check.rules.registry import template_registry
+
+    if args.action == "list":
+        templates = template_registry.list_all()
+        if not templates:
+            print("暂无注册的模板")
+            return
+        print(f"已注册模板 ({len(templates)}):")
+        print()
+        for tpl in templates:
+            print(f"  📌 {tpl.name}")
+            print(f"     类别: {tpl.category} | 描述: {tpl.description}")
+            if tpl.latex_class:
+                print(f"     LaTeX: \\documentclass{{{tpl.latex_class}}}")
+            print()
+
+    elif args.action == "show":
+        tpl = template_registry.get(args.name)
+        if not tpl:
+            print(f"未找到模板: {args.name}")
+            return
+        import dataclasses
+        d = dataclasses.asdict(tpl)
+        import json
+        print(json.dumps(d, ensure_ascii=False, indent=2))
+
+    elif args.action == "search":
+        results = template_registry.search(args.query)
+        if not results:
+            print(f"未找到匹配 '{args.query}' 的模板")
+            return
+        print(f"匹配 '{args.query}' 的模板:")
+        for tpl in results:
+            print(f"  📌 {tpl.name} [{tpl.category}]")
+
+    elif args.action == "check":
+        """用指定模板检查论文格式"""
+        setup_logging(args.verbose)
+        paper_path = Path(args.paper)
+        if not paper_path.exists():
+            print(f"文件不存在: {paper_path}")
+            return
+
+        from article_check.rules.engine import TemplateRuleEngine
+        from article_check.utils.file_utils import detect_file_type
+
+        engine = TemplateRuleEngine()
+        file_type = detect_file_type(paper_path)
+
+        print(f"检查论文: {paper_path.name}")
+        print(f"使用模板: {args.template_name}")
+        print(f"文件类型: {file_type}")
+        print()
+
+        issues = engine.check(args.template_name, paper_path, file_type)
+
+        if not issues:
+            print("✅ 格式符合模板规范")
+            return
+
+        print(f"发现 {len(issues)} 个格式问题:")
+        for i, issue in enumerate(issues, 1):
+            sev = issue.get("severity", "info")
+            emoji = {"critical": "🔴", "major": "🟡", "minor": "🟢", "info": "ℹ️"}
+            print(f"\n{emoji.get(sev, '•')} #{i} [{sev.upper()}] {issue.get('description', '')}")
+            if issue.get("suggestion"):
+                print(f"   💡 建议: {issue['suggestion']}")
+
+    elif args.action == "auto-detect":
+        """自动检测论文匹配哪类模板"""
+        paper_path = Path(args.paper)
+        if not paper_path.exists():
+            print(f"文件不存在: {paper_path}")
+            return
+
+        text = paper_path.read_text(encoding="utf-8", errors="replace")
+
+        # LaTeX 文档类检测
+        import re
+        m = re.search(r'\\documentclass(?:\[[^\]]*\])?\{(.+?)\}', text)
+        latex_class = m.group(1) if m else None
+
+        # 检测宏包
+        packages = re.findall(r'\\usepackage(?:\[[^\]]*\])?\{(.+?)\}', text)
+
+        # 自动匹配
+        tpl = template_registry.detect_matching_template(
+            latex_class=latex_class,
+            packages=packages,
+            text_sample=text[:500],
+        )
+
+        print(f"论文: {paper_path.name}")
+        if latex_class:
+            print(f"文档类: \\documentclass{{{latex_class}}}")
+        if packages:
+            print(f"宏包: {', '.join(packages[:10])}")
+        print()
+
+        if tpl:
+            print(f"✅ 自动匹配: {tpl.name} ({tpl.category})")
+            print(f"   描述: {tpl.description}")
+        else:
+            print("⚠️  未能自动匹配模板")
+            print("   可尝试: article-check template list")
+
+
 def cmd_format(args):
     """格式检查命令（无需 LLM）"""
     setup_logging(args.verbose)
@@ -332,6 +444,16 @@ def main():
     # config
     subparsers.add_parser("config", help="显示当前配置")
 
+    # template
+    p_template = subparsers.add_parser("template", help="模板管理：list/show/search/check/auto-detect")
+    p_template.add_argument("action", choices=["list", "show", "search", "check", "auto-detect"],
+                           help="模板操作")
+    p_template.add_argument("--name", help="模板名称（show/check 用）")
+    p_template.add_argument("--query", help="搜索关键词（search 用）")
+    p_template.add_argument("--paper", help="论文路径（check/auto-detect 用）")
+    p_template.add_argument("--template-name", help="模板名称（check 用）")
+    p_template.add_argument("-v", "--verbose", action="store_true")
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -346,6 +468,7 @@ def main():
         "refs": cmd_refs,
         "tools": cmd_tools,
         "config": cmd_config,
+        "template": cmd_template,
     }
 
     cmd = commands.get(args.command)
