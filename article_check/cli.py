@@ -511,6 +511,15 @@ def cmd_start(args):
             input("  按回车继续...")
 
 
+def cmd_chat(args):
+    """
+    💬 自然语言对话模式 — 像聊天一样驱动论文审查与修正
+    """
+    from article_check.chat import ChatSession
+    session = ChatSession(verbose=args.verbose)
+    session.run()
+
+
 def _print_result(result):
     """打印审查结果到控制台"""
     score = result.overall_score or 0
@@ -613,6 +622,10 @@ def main():
     p_start = subparsers.add_parser("start", help="交互式一键启动 — 智能体主菜单")
     p_start.add_argument("-v", "--verbose", action="store_true")
 
+    # chat — 自然语言对话模式
+    p_chat = subparsers.add_parser("chat", help="💬 自然语言对话模式 — 像聊天一样审查/修正论文")
+    p_chat.add_argument("-v", "--verbose", action="store_true")
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -629,6 +642,7 @@ def main():
         "config": cmd_config,
         "template": cmd_template,
         "start": cmd_start,
+        "chat": cmd_chat,
     }
 
     cmd = commands.get(args.command)

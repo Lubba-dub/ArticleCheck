@@ -16,14 +16,19 @@ from article_check.cli import main as cli_main
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
-        first = Path(sys.argv[1])
-        if first.exists():
-            if first.is_dir():
-                sys.argv = [sys.argv[0], "batch", str(first)]
-            else:
-                sys.argv = [sys.argv[0], "review", str(first)]
+        first = sys.argv[1]
+        # Support: python run.py chat
+        if first == "chat":
+            sys.argv = [sys.argv[0], "chat"]
         else:
-            sys.argv = [sys.argv[0]] + sys.argv[1:]
+            p = Path(first)
+            if p.exists():
+                if p.is_dir():
+                    sys.argv = [sys.argv[0], "batch", str(p)]
+                else:
+                    sys.argv = [sys.argv[0], "review", str(p)]
+            else:
+                sys.argv = [sys.argv[0]] + sys.argv[1:]
     else:
         sys.argv = [sys.argv[0], "start"]
     cli_main()
