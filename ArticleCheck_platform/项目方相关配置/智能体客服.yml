@@ -1,0 +1,125 @@
+app:
+  description: ''
+  icon: 🤖
+  icon_background: '#FFEAD5'
+  icon_type: emoji
+  mode: chat
+  name: CRM
+  use_icon_as_answer_icon: false
+dependencies:
+- current_identifier: null
+  type: marketplace
+  value:
+    marketplace_plugin_unique_identifier: langgenius/deepseek:0.0.17@f7a5c1d222d17ee419b17a80d6e4923838fe93788dc724a3af73fbc6990b3a32
+    version: null
+kind: app
+model_config:
+  agent_mode:
+    enabled: false
+    max_iteration: 10
+    strategy: function_call
+    tools: []
+  annotation_reply:
+    enabled: false
+  chat_prompt_config:
+    prompt:
+    - role: system
+      text: ''
+  completion_prompt_config:
+    conversation_histories_role:
+      assistant_prefix: ''
+      user_prefix: ''
+    prompt:
+      text: ''
+  dataset_configs:
+    datasets:
+      datasets:
+      - dataset:
+          enabled: true
+          id: 26cc202f-f6f8-4378-991a-c2b878cff6c3
+    reranking_enable: true
+    reranking_mode: reranking_model
+    reranking_model:
+      reranking_model_name: qwen3-rerank
+      reranking_provider_name: langgenius/tongyi/tongyi
+    retrieval_model: multiple
+    top_k: 4
+  dataset_query_variable: ''
+  external_data_tools: []
+  file_upload:
+    allowed_file_extensions:
+    - .JPG
+    - .JPEG
+    - .PNG
+    - .GIF
+    - .WEBP
+    - .SVG
+    - .MP4
+    - .MOV
+    - .MPEG
+    - .WEBM
+    allowed_file_types: []
+    allowed_file_upload_methods:
+    - remote_url
+    - local_file
+    enabled: false
+    image:
+      detail: high
+      enabled: false
+      number_limits: 3
+      transfer_methods:
+      - remote_url
+      - local_file
+    number_limits: 3
+  model:
+    completion_params:
+      stop: []
+    mode: chat
+    name: deepseek-chat
+    provider: langgenius/deepseek/deepseek
+  more_like_this:
+    enabled: false
+  opening_statement: 您好！欢迎来到我们的客服中心，很高兴为您服务。请问有什么可以帮您的？无论是产品咨询、价格查询还是其他问题，我都会尽力为您提供准确的信息和帮助。
+  pre_prompt: "```xml\n<instruction>\n你是一位专业的客服助手。请严格按照以下步骤完成用户的请求：\n\n1. **欢迎与常规问候**：首先礼貌问候用户，表示愿意提供帮助。\n\
+    \n2. **识别用户核心问题**：分析用户输入的主要内容，判断其属于以下哪一类：\n   - 常规问题（如问候、简单操作指引、情感支持等）：直接友好回应，无需查询知识库。\n\
+    \   - 产品细节、价格、企业信息类问题：必须使用下方提供的 {{knowledge_base}} 进行回答，严禁自行编造信息。\n   - 偏离产品或公司的问题：礼貌告知用户你不了解该领域，并主动将话题拉回公司产品或服务范围。\n\
+    \   - 产品相关问题但知识库中无信息：明确告知用户“该问题暂时无法从知识库中查到，建议您联系我们的真人客服获取更详细信息。”\n\n3. **使用知识库的规则**：\n\
+    \   - 从 {{knowledge_base}} 中查找与用户问题最匹配的内容。\n   - 如果知识库中有多条相关内容，选择最贴切的一条回答。\n \
+    \  - 如果知识库中没有相关内容，严格按照第2条中的对应规则处理（如建议联系真人客服）。\n\n4. **输出要求**：\n   - 你的输出应为纯文本，**不要包含任何\
+    \ XML 标签**（如 `<instruction>`、`<example>` 等）。\n   - 保持语气专业、礼貌、耐心。\n   - 回复应简洁明了，避免冗余。\n\
+    \n5. **输入变量说明**：\n   - {{user_input}}：用户发送给客服的消息内容。\n   - {{knowledge_base}}：包含公司产品细节、价格、企业信息等知识库文本，格式为纯文本或结构化列表。当需要相关信息时，你必须从中查找。\n\
+    \n<example>\n输入：\n{{user_input}}：“你好，请问你们的产品A价格是多少？”\n{{knowledge_base}}：“产品A价格：199元/个。产品B价格：299元/个。公司成立时间：2010年。”\n\
+    \n正确输出：\n“您好！很高兴为您服务。根据我们的信息，产品A的价格是199元/个。请问还有其他问题吗？”\n\n错误输出（不能有XML标签）：\n<output>您好…</output>\n\
+    或：“产品A价格199（价格错误）” // 禁止编造\n\n输入：\n{{user_input}}：“能聊一聊今天天气吗？”\n{{knowledge_base}}：“产品A价格：199元/个。”\n\
+    \n正确输出：\n“您好，关于天气信息我暂时无法为您提供。请问您是否有关于我们产品的其他问题需要咨询呢？”\n\n输入：\n{{user_input}}：“产品C的保修政策是怎样的？”\n\
+    {{knowledge_base}}：“产品A价格：199元/个。产品B价格：299元/个。”\n\n正确输出：\n“非常抱歉，关于产品C的保修政策，目前我们的知识库中没有相关信息。建议您联系我们的真人客服获取更详细的解答。感谢您的理解！”\n\
+    </example>\n\n现在，请根据 {{user_input}} 和 {{knowledge_base}} 开始你的回复。\n</instruction>\n\
+    ```"
+  prompt_type: simple
+  retriever_resource:
+    enabled: true
+  sensitive_word_avoidance:
+    config: {}
+    enabled: false
+    type: ''
+  speech_to_text:
+    enabled: false
+  suggested_questions: []
+  suggested_questions_after_answer:
+    enabled: false
+  text_to_speech:
+    enabled: false
+    language: ''
+    voice: ''
+  user_input_form:
+  - text-input:
+      default: ''
+      label: knowledge_base
+      required: true
+      variable: knowledge_base
+  - text-input:
+      default: ''
+      label: user_input
+      required: true
+      variable: user_input
+version: 0.6.0

@@ -1,0 +1,103 @@
+{
+  "name": "article-check-vscode",
+  "displayName": "Article Check",
+  "description": "在 VSCode 中审查论文格式、参考文献有效性并展示 AI 审查报告。",
+  "version": "0.0.1",
+  "publisher": "article-check",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Lubba-dub/ArticleCheck"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:articleCheck.reviewCurrentFile",
+    "onCommand:articleCheck.openLastReport",
+    "onCommand:articleCheck.reviewWorkspace",
+    "onCommand:articleCheck.exportFormalReport",
+    "onView:articleCheck.workbench"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "articleCheck",
+          "title": "Article Check",
+          "icon": "media/article-check.svg"
+        }
+      ]
+    },
+    "views": {
+      "articleCheck": [
+        {
+          "type": "webview",
+          "id": "articleCheck.workbench",
+          "name": "审改工作台"
+        },
+        {
+          "id": "articleCheck.workflowTree",
+          "name": "节点状态"
+        },
+        {
+          "id": "articleCheck.evidenceTree",
+          "name": "Evidence"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "articleCheck.reviewCurrentFile",
+        "title": "Article Check: 审查当前论文"
+      },
+      {
+        "command": "articleCheck.openLastReport",
+        "title": "Article Check: 打开最近报告"
+      },
+      {
+        "command": "articleCheck.reviewWorkspace",
+        "title": "Article Check: 审查当前工作区论文"
+      },
+      {
+        "command": "articleCheck.exportFormalReport",
+        "title": "Article Check: 打开正式审改报告"
+      }
+    ],
+    "configuration": {
+      "title": "Article Check",
+      "properties": {
+        "articleCheck.pythonPath": {
+          "type": "string",
+          "default": "python",
+          "description": "用于启动 Article Check 的 Python 命令。"
+        },
+        "articleCheck.reviewDepth": {
+          "type": "string",
+          "enum": [
+            "quick",
+            "auto",
+            "full"
+          ],
+          "default": "auto",
+          "description": "默认审查深度。"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.2.2",
+    "@types/node": "^20.14.10",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.5.4"
+  }
+}

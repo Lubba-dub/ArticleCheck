@@ -1,0 +1,76 @@
+version: "3.8"
+
+# ============================================================
+# Article Check — Docker Compose 部署
+# 符合 PPT WebDemo 规范：Nginx 反向代理 + API Key环境变量注入
+# ============================================================
+
+services:
+  # ─── Nginx 反向代理 ──────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: article-check-nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_PORT:-3000}:80"          # 对外端口，默认 3000
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+    networks:
+      - article-check-net
+
+  # ─── FastAPI 后端 ─────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: article-check:latest
+    container_name: article-check-api
+    restart: unless-stopped
+    expose:
+      - "8000"                            # 仅在内部网络暴露
+    environment:
+      # ⚠️ 平台部署默认走 Dify 代理，API Key 通过环境变量注入，勿硬编码
+      - ARTICLE_CHECK_AI_PROVIDER=${ARTICLE_CHECK_AI_PROVIDER:-dify}
+      - DIFY_BASE_URL=${DIFY_BASE_URL:?请设置 DIFY_BASE_URL 环境变量}
+      - DIFY_API_KEY=${DIFY_API_KEY:?请设置 DIFY_API_KEY 环境变量}
+      - DIFY_APP_TYPE=${DIFY_APP_TYPE:-chat}
+      - DIFY_RESPONSE_MODE=${DIFY_RESPONSE_MODE:-blocking}
+      - DIFY_WORKFLOW_QUERY_KEY=${DIFY_WORKFLOW_QUERY_KEY:-query}
+      - DIFY_INPUTS_JSON=${DIFY_INPUTS_JSON:-{}}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - ARTICLE_CHECK_ROOT=/app
+      - PYTHONPATH=/app
+      - SERPER_API_KEY=${SERPER_API_KEY:-}
+    volumes:
+      - reports_data:/app/reports          # 报告持久化
+      - uploads_data:/app/uploads          # 上传文件持久化
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - article-check-net
+
+  # ─── Redis（可选 — 用于会话缓存/限流）───────────────
+  redis:
+    image: redis:7-alpine
+    container_name: article-check-redis
+    restart: unless-stopped
+    expose:
+      - "6379"
+    networks:
+      - article-check-net
+    profiles:
+      - with-redis                        # 默认不启动; docker compose --profile with-redis up
+
+networks:
+  article-check-net:
+    driver: bridge
+
+volumes:
+  reports_data:
+  uploads_data:

@@ -24,6 +24,7 @@ env/
 reports/
 .worktrees/
 .cache/
+.article_check/
 
 # OS
 Thumbs.db
@@ -45,3 +46,7 @@ test_fixtures/*.tex
 test_fixtures/* !*.min.tex
 test_fixtures/*_copy.*
 uploads/
+
+# Frontend
+node_modules/
+npm-debug.log*
