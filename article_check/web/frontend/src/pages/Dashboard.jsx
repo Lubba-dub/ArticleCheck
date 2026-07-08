@@ -3,9 +3,6 @@ import { Link } from 'react-router-dom';
 import { Activity, FileCheck, FileText, ShieldAlert, Sparkles, TrendingUp } from 'lucide-react';
 
 export default function Dashboard({ status }) {
-  const cards = [
-    { label: '论文审查', value: '正式报告模板 + 证据定位', icon: FileText, to: '/review' },
-  ];
   const features = [
     { icon: FileText, title: '正式报告模板', desc: '将格式、文献、内容与 evidence 收束为统一审查报告', tone: 'text-primary-700' },
     { icon: ShieldAlert, title: '证据定位', desc: '支持问题定位、证据片段跳转与细节展开', tone: 'text-rose-700' },
@@ -48,20 +45,6 @@ export default function Dashboard({ status }) {
             </div>
           </div>
         </div>
-      </section>
-
-      <section className="grid gap-4 lg:grid-cols-1">
-        {cards.map(({ label, value, icon: Icon, to }) => (
-          <Link key={to} to={to} className="nav-card">
-            <div className="nav-card-icon">
-              <Icon className="h-5 w-5" />
-            </div>
-            <div className="space-y-1">
-              <div className="nav-card-title">{label}</div>
-              <div className="nav-card-text">{value}</div>
-            </div>
-          </Link>
-        ))}
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1.2fr,0.8fr]">
@@ -108,18 +91,6 @@ export default function Dashboard({ status }) {
             ))}
           </div>
         </div>
-      </section>
-
-      <section className="surface-card">
-        <div className="surface-card-head">
-          <div>
-            <h2 className="surface-card-title">推荐入口</h2>
-            <p className="surface-card-subtitle">如果你要看新设计，请直接进入新的报告工作台</p>
-          </div>
-        </div>
-        <Link to="/review" className="inline-flex items-center gap-2 text-sm font-medium text-primary-700">
-          打开论文审查报告页面 <FileText className="h-4 w-4" />
-        </Link>
       </section>
     </div>
   );

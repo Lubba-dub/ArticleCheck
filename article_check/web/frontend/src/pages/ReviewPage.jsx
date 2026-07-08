@@ -243,11 +243,11 @@ export default function ReviewPage() {
       <section className="command-deck compact-command-deck">
         <div className="flex flex-col gap-8 xl:flex-row xl:items-center xl:justify-between">
           <div className="max-w-3xl space-y-4">
-            <div className="capsule capsule-primary">Review Workspace</div>
+            <div className="capsule capsule-primary">论文审查工作台</div>
             <div>
               <h1 className="page-title">论文审查报告工作台</h1>
               <p className="page-subtitle">
-                将上传、批量审查、正式报告与证据定位收束为同一页面，用正式报告模板替代零散调试块。
+                将上传、批量审查、正式报告、问题定位与问答解释收束在同一页面，帮助用户更快确认风险并安排修改顺序。
               </p>
             </div>
             <div className="flex flex-wrap gap-3 text-sm text-slate-500">
@@ -256,11 +256,11 @@ export default function ReviewPage() {
             </div>
           </div>
 
-          <div className="upload-panel">
+          <div className="upload-panel space-y-4">
             <div className="upload-panel-head">
               <div>
                 <div className="upload-panel-title">审查控制台</div>
-                <div className="upload-panel-subtitle">支持单篇与批量流式审查，自动汇入正式报告模板</div>
+                <div className="upload-panel-subtitle">支持单篇与批量流式审查，审查结果会自动汇入下方统一报告视图</div>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -285,12 +285,12 @@ export default function ReviewPage() {
                 流式批量
               </button>
             </div>
-            <label className="inline-flex items-center gap-2 text-sm text-slate-600">
+            <label className="inline-flex items-center gap-2 pt-1 text-sm text-slate-600">
               <input type="checkbox" checked={deepReview} onChange={(event) => setDeepReview(event.target.checked)} className="rounded border-slate-300" />
-              启用 DeepSeek 深度内容审查
+              启用深度内容审查
             </label>
             <div className="queue-files">
-              {queuedFiles.length === 0 && <div className="text-sm text-slate-500">尚未上传论文。支持 `tex/docx/pdf`。</div>}
+              {queuedFiles.length === 0 && <div className="text-sm text-slate-500">尚未上传论文，支持 `tex / docx / pdf` 等常见论文文件。</div>}
               {queuedFiles.map((file) => (
                 <div key={`${file.path}-${file.name}`} className="queue-file-item">
                   <div className="flex items-center gap-3">

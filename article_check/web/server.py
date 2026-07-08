@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from pathlib import Path
@@ -136,29 +137,12 @@ def _snippet_from_lines(lines: List[str], center_line: int, radius: int) -> Dict
 
 
 def _snippet_from_section(lines: List[str], section_name: str, radius: int) -> Dict[str, Any]:
-    section_lower = section_name.lower().strip()
-    section_tokens = [section_lower.replace("_", " "), section_lower.replace("-", " ")]
-    for idx, line in enumerate(lines):
-        line_lower = line.lower().strip()
-        if any(token and token in line_lower for token in section_tokens):
-            snippet = _snippet_from_lines(lines, idx + 1, max(radius, 6))
-            snippet["mode"] = "section"
-            snippet["matched_section"] = section_name
-            return snippet
-        if line_lower.startswith("\\section") or line_lower.startswith("#"):
-            normalized_line = (
-                line_lower
-                .replace("\\section{", "")
-                .replace("\\subsection{", "")
-                .replace("}", "")
-                .replace("#", "")
-                .strip()
-            )
-            if any(token and token in normalized_line for token in section_tokens):
-                snippet = _snippet_from_lines(lines, idx + 1, max(radius, 6))
-                snippet["mode"] = "section"
-                snippet["matched_section"] = section_name
-                return snippet
+    matched_index = _find_section_line_index(lines, section_name)
+    if matched_index is not None:
+        snippet = _snippet_from_lines(lines, matched_index + 1, max(radius, 6))
+        snippet["mode"] = "section"
+        snippet["matched_section"] = section_name
+        return snippet
     return {
         "mode": "section",
         "start_line": None,
@@ -166,6 +150,196 @@ def _snippet_from_section(lines: List[str], section_name: str, radius: int) -> D
         "focus_line": None,
         "matched_section": section_name,
         "excerpt": [{"line_number": None, "text": f"未在源文件中定位到章节: {section_name}"}],
+    }
+
+
+def _normalize_search_text(text: Any) -> str:
+    value = str(text or "").strip().lower()
+    value = value.replace("_", " ").replace("-", " ")
+    value = re.sub(r"[^\w\u4e00-\u9fff\s]", " ", value)
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _is_useful_query(text: str) -> bool:
+    normalized = _normalize_search_text(text)
+    if not normalized:
+        return False
+    chinese_chars = re.findall(r"[\u4e00-\u9fff]", normalized)
+    if len(chinese_chars) >= 2:
+        return True
+    compact = normalized.replace(" ", "")
+    return len(compact) >= 6
+
+
+def _split_search_candidates(text: Any) -> List[str]:
+    raw = str(text or "").strip()
+    if not raw:
+        return []
+    segments = [raw]
+    segments.extend(re.split(r"[，。；;：:,.!?()\[\]{}]+", raw))
+    values: List[str] = []
+    seen = set()
+    for item in segments:
+        normalized = _normalize_search_text(item)
+        if not normalized or normalized in seen or not _is_useful_query(normalized):
+            continue
+        seen.add(normalized)
+        values.append(normalized)
+    return values
+
+
+def _expand_section_tokens(section_name: Any) -> List[str]:
+    normalized = _normalize_search_text(section_name)
+    if not normalized:
+        return []
+
+    variants = {
+        normalized,
+        normalized.replace(" ", ""),
+        normalized.replace(" ", "_"),
+        normalized.replace(" ", "-"),
+    }
+
+    alias_map = {
+        "references": {"reference", "references", "bibliography", "参考文献", "参考资料", "文献"},
+        "reference": {"reference", "references", "bibliography", "参考文献", "参考资料", "文献"},
+        "bibliography": {"reference", "references", "bibliography", "参考文献", "参考资料", "文献"},
+        "abstract": {"abstract", "摘要", "摘 要"},
+        "introduction": {"introduction", "引言", "绪论", "前言"},
+        "related work": {"related work", "relatedwork", "相关工作", "研究现状"},
+        "conclusion": {"conclusion", "结论", "总结", "结语"},
+        "method": {"method", "methods", "方法", "研究方法"},
+    }
+    for key, aliases in alias_map.items():
+        if key in normalized:
+            variants.update(_normalize_search_text(alias) for alias in aliases)
+
+    return [token for token in variants if token]
+
+
+def _build_search_queries(evidence: Dict[str, Any], location: Dict[str, Any]) -> List[str]:
+    raw_payload = evidence.get("raw_payload") or {}
+    candidates: List[Any] = [
+        evidence.get("claim"),
+        evidence.get("suggestion"),
+        raw_payload.get("description"),
+        raw_payload.get("issue"),
+        raw_payload.get("title"),
+        raw_payload.get("section"),
+        location.get("section"),
+    ]
+    queries: List[str] = []
+    seen = set()
+    for candidate in candidates:
+        for item in _split_search_candidates(candidate):
+            if item in seen:
+                continue
+            seen.add(item)
+            queries.append(item)
+    return queries
+
+
+def _is_heading_like_line(line: str) -> bool:
+    stripped = str(line or "").strip()
+    if not stripped:
+        return False
+    if len(stripped) <= 40:
+        return True
+    return bool(
+        stripped.startswith("\\section")
+        or stripped.startswith("\\subsection")
+        or stripped.startswith("#")
+        or re.match(r"^\s*[\d一二三四五六七八九十]+[\.、]", stripped)
+    )
+
+
+def _find_section_line_index(lines: List[str], section_name: Any) -> Optional[int]:
+    section_tokens = _expand_section_tokens(section_name)
+    if not section_tokens:
+        return None
+
+    for idx, line in enumerate(lines):
+        if not _is_heading_like_line(line):
+            continue
+        normalized_line = _normalize_search_text(line)
+        normalized_line = (
+            normalized_line
+            .replace("section ", "")
+            .replace("subsection ", "")
+            .strip()
+        )
+        if any(token and token in normalized_line for token in section_tokens):
+            return idx
+    return None
+
+
+def _derive_section_name(evidence: Dict[str, Any], location: Dict[str, Any]) -> Optional[str]:
+    if location.get("section"):
+        return str(location["section"])
+
+    raw_payload = evidence.get("raw_payload") or {}
+    if raw_payload.get("section"):
+        return str(raw_payload["section"])
+
+    for text in [evidence.get("claim"), raw_payload.get("description"), raw_payload.get("title")]:
+        raw = str(text or "")
+        match = re.search(r"[\"'`]?([A-Za-z][A-Za-z\s_-]{1,40}|[\u4e00-\u9fff]{2,20})[\"'`]?\s*章节", raw)
+        if match:
+            return match.group(1).strip()
+    return None
+
+
+def _score_line_match(line: str, query: str) -> int:
+    normalized_line = _normalize_search_text(line)
+    if not normalized_line or not query:
+        return 0
+    if query in normalized_line:
+        return 1000 + len(query)
+
+    query_tokens = [token for token in query.split() if len(token) >= 2]
+    if len(query_tokens) < 2:
+        return 0
+
+    matched = sum(1 for token in set(query_tokens) if token in normalized_line)
+    required = max(2, len(query_tokens) // 2)
+    if matched >= required:
+        return matched * 100 + len(query)
+    return 0
+
+
+def _find_best_query_line(lines: List[str], queries: List[str]) -> Optional[Dict[str, Any]]:
+    best_match: Optional[Dict[str, Any]] = None
+    for idx, line in enumerate(lines):
+        for query in queries:
+            score = _score_line_match(line, query)
+            if score <= 0:
+                continue
+            if not best_match or score > best_match["score"]:
+                best_match = {
+                    "line_index": idx,
+                    "score": score,
+                    "query": query,
+                }
+    return best_match
+
+
+def _snippet_from_query(lines: List[str], queries: List[str], radius: int) -> Optional[Dict[str, Any]]:
+    best_match = _find_best_query_line(lines, queries)
+    if not best_match:
+        return None
+
+    snippet = _snippet_from_lines(lines, best_match["line_index"] + 1, max(radius, 4))
+    snippet["mode"] = "query"
+    snippet["matched_query"] = best_match["query"]
+    return snippet
+
+
+def _unresolved_snippet(source_kind: str, location: Dict[str, Any], message: str) -> Dict[str, Any]:
+    return {
+        "mode": "unresolved",
+        "source_kind": source_kind,
+        "summary": _build_snippet_summary(location),
+        "excerpt": [{"line_number": None, "text": message}],
     }
 
 
@@ -182,17 +356,99 @@ def _build_snippet_summary(location: Dict[str, Any]) -> str:
     return " · ".join(parts) or "未提供定位信息"
 
 
-def _read_text_excerpt(source_path: Path, location: Dict[str, Any], radius: int) -> Dict[str, Any]:
+def _read_pdf_excerpt(source_path: Path, location: Dict[str, Any], evidence: Dict[str, Any], radius: int) -> Dict[str, Any]:
+    try:
+        import fitz
+    except Exception as exc:  # pragma: no cover - import fallback
+        return {
+            "mode": "pdf-unavailable",
+            "source_kind": "pdf",
+            "summary": _build_snippet_summary(location),
+            "excerpt": [{"line_number": None, "text": f"PDF 片段预览不可用: {exc}"}],
+        }
+
+    queries = _build_search_queries(evidence, location)
+    preferred_page = int(location.get("page") or 0) or None
+    section_name = _derive_section_name(evidence, location)
+
+    with fitz.open(str(source_path)) as pdf:
+        if preferred_page and location.get("line") and 1 <= preferred_page <= len(pdf):
+            page = pdf.load_page(preferred_page - 1)
+            lines = page.get_text("text").splitlines()
+            snippet = _snippet_from_lines(lines, int(location.get("line") or 1), max(radius, 5))
+            snippet["source_kind"] = "pdf"
+            snippet["page"] = preferred_page
+            snippet["summary"] = _build_snippet_summary(location)
+            return snippet
+
+        page_order = list(range(1, len(pdf) + 1))
+        if preferred_page and preferred_page in page_order:
+            page_order.remove(preferred_page)
+            page_order.insert(0, preferred_page)
+
+        if queries:
+            best_match: Optional[Dict[str, Any]] = None
+            for page_number in page_order:
+                page = pdf.load_page(page_number - 1)
+                lines = page.get_text("text").splitlines()
+                candidate = _find_best_query_line(lines, queries)
+                if candidate and (not best_match or candidate["score"] > best_match["score"]):
+                    best_match = {
+                        "page_number": page_number,
+                        "line_index": candidate["line_index"],
+                        "query": candidate["query"],
+                        "lines": lines,
+                        "score": candidate["score"],
+                    }
+            if best_match:
+                snippet = _snippet_from_lines(best_match["lines"], best_match["line_index"] + 1, max(radius, 5))
+                snippet["mode"] = "query"
+                snippet["matched_query"] = best_match["query"]
+                snippet["source_kind"] = "pdf"
+                snippet["page"] = best_match["page_number"]
+                snippet["summary"] = _build_snippet_summary(location)
+                return snippet
+
+        if section_name:
+            for page_number in page_order:
+                page = pdf.load_page(page_number - 1)
+                lines = page.get_text("text").splitlines()
+                matched_index = _find_section_line_index(lines, section_name)
+                if matched_index is not None:
+                    snippet = _snippet_from_lines(lines, matched_index + 1, max(radius, 6))
+                    snippet["mode"] = "section"
+                    snippet["matched_section"] = section_name
+                    snippet["source_kind"] = "pdf"
+                    snippet["page"] = page_number
+                    snippet["summary"] = _build_snippet_summary(location)
+                    return snippet
+
+        if preferred_page and 1 <= preferred_page <= len(pdf):
+            page = pdf.load_page(preferred_page - 1)
+            lines = page.get_text("text").splitlines()
+            snippet = _snippet_from_lines(lines, int(location.get("line") or 1), max(radius, 5))
+            snippet["source_kind"] = "pdf"
+            snippet["page"] = preferred_page
+            snippet["summary"] = _build_snippet_summary(location)
+            return snippet
+
+        return _unresolved_snippet("pdf", location, "当前问题缺少稳定的页码、行号或文本锚点，暂时无法精确定位到对应 PDF 片段。")
+
+
+def _read_text_excerpt(source_path: Path, location: Dict[str, Any], evidence: Dict[str, Any], radius: int) -> Dict[str, Any]:
     suffix = source_path.suffix.lower()
 
     if suffix in {".tex", ".ltx", ".txt", ".md"}:
         lines = source_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        section_name = _derive_section_name(evidence, location)
         if location.get("line"):
             snippet = _snippet_from_lines(lines, int(location["line"]), radius)
-        elif location.get("section"):
-            snippet = _snippet_from_section(lines, str(location["section"]), radius)
+        elif (queries := _build_search_queries(evidence, location)) and (matched := _snippet_from_query(lines, queries, radius)):
+            snippet = matched
+        elif section_name:
+            snippet = _snippet_from_section(lines, section_name, radius)
         else:
-            snippet = _snippet_from_lines(lines, 1, max(radius, 8))
+            return _unresolved_snippet("text", location, "当前问题缺少稳定的行号、章节或文本锚点，暂时无法精确定位到对应原文片段。")
         snippet["source_kind"] = "text"
         snippet["summary"] = _build_snippet_summary(location)
         return snippet
@@ -211,37 +467,21 @@ def _read_text_excerpt(source_path: Path, location: Dict[str, Any], radius: int)
         doc = Document(str(source_path))
         paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
         lines = [text.strip() for text in paragraphs]
-        if location.get("section"):
-            snippet = _snippet_from_section(lines, str(location["section"]), max(radius, 4))
-        elif location.get("line"):
+        section_name = _derive_section_name(evidence, location)
+        if location.get("line"):
             snippet = _snippet_from_lines(lines, int(location["line"]), radius)
+        elif (queries := _build_search_queries(evidence, location)) and (matched := _snippet_from_query(lines, queries, radius)):
+            snippet = matched
+        elif section_name:
+            snippet = _snippet_from_section(lines, section_name, max(radius, 4))
         else:
-            snippet = _snippet_from_lines(lines, 1, max(radius, 5))
+            return _unresolved_snippet("docx", location, "当前问题缺少稳定的段落、章节或文本锚点，暂时无法精确定位到对应 DOCX 片段。")
         snippet["source_kind"] = "docx"
         snippet["summary"] = _build_snippet_summary(location)
         return snippet
 
     if suffix == ".pdf":
-        try:
-            import fitz
-        except Exception as exc:  # pragma: no cover - import fallback
-            return {
-                "mode": "pdf-unavailable",
-                "source_kind": "pdf",
-                "summary": _build_snippet_summary(location),
-                "excerpt": [{"line_number": None, "text": f"PDF 片段预览不可用: {exc}"}],
-            }
-
-        page_number = max(1, int(location.get("page") or 1))
-        with fitz.open(str(source_path)) as pdf:
-            page = pdf.load_page(page_number - 1)
-            text = page.get_text("text")
-        lines = text.splitlines()
-        snippet = _snippet_from_lines(lines, int(location.get("line") or 1), max(radius, 5))
-        snippet["source_kind"] = "pdf"
-        snippet["page"] = page_number
-        snippet["summary"] = _build_snippet_summary(location)
-        return snippet
+        return _read_pdf_excerpt(source_path, location, evidence, radius)
 
     return {
         "mode": "unsupported",
@@ -362,7 +602,7 @@ async def get_report_source_snippet(req: EvidenceSnippetRequest):
         raise HTTPException(400, "报告中缺少 source_paper_path，无法定位原文片段")
 
     source_path = _resolve_safe_path(source_path_raw)
-    snippet = _read_text_excerpt(source_path, evidence.get("location") or {}, req.context_radius)
+    snippet = _read_text_excerpt(source_path, evidence.get("location") or {}, evidence, req.context_radius)
     return api_success({
         "evidence_id": req.evidence_id,
         "source_path": str(source_path),

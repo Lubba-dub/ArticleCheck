@@ -5,7 +5,6 @@ import {
   BookMarked,
   Bot,
   ChevronRight,
-  CircleDot,
   ExternalLink,
   FileWarning,
   Files,
@@ -14,7 +13,6 @@ import {
   Gauge,
   ListChecks,
   LocateFixed,
-  Network,
   ScanLine,
   ScanSearch,
   ShieldAlert,
@@ -193,10 +191,8 @@ export default function ReviewStudio({
   const referenceIssues = useMemo(() => extractReferenceIssues(review), [review]);
   const contentHighlights = useMemo(() => extractContentHighlights(review), [review]);
   const evidenceRecords = review.evidence_records || [];
-  const workflowNodes = Object.entries(review.workflow?.graph || {});
   const priorities = review.advice_report?.priorities || [];
   const summaryCards = buildSummaryCards(review, formatIssues, referenceIssues, evidenceRecords);
-  const selectedDetail = buildDetailModel(review, detailTarget);
   const overview = buildOverview(review, formatIssues, referenceIssues, contentHighlights);
   const navigatorItems = buildNavigatorItems(evidenceRecords, formatIssues, referenceIssues);
 
@@ -216,17 +212,17 @@ export default function ReviewStudio({
               </span>
               <span className="capsule capsule-muted">
                 <ScanSearch className="h-3.5 w-3.5" />
-                task {review.meta?.task_id || '-'}
+                任务 {review.meta?.task_id || '-'}
               </span>
             </div>
 
             <div className="space-y-3">
-              <div className="report-kicker">Paper Review Board</div>
+              <div className="report-kicker">审查报告总览</div>
               <h1 className="report-title">
                 {review.meta?.paper_title || '论文审查报告'}
               </h1>
               <p className="report-subtitle">
-                按“执行摘要 → 风险分层 → 证据定位 → 修订行动”组织，面向论文作者、导师与审改系统三方共享同一份正式报告。
+                按“执行摘要 → 风险分层 → 问题定位 → 修订行动”组织，帮助用户快速把握最需要优先修改的内容。
               </p>
             </div>
 
@@ -245,11 +241,6 @@ export default function ReviewStudio({
                 <Printer className="h-4 w-4" />
                 直接打印 / 导出 PDF
               </button>
-              {reportFileUrl && !usingTemplate && (
-                <a className="capsule capsule-muted" href={reportFileUrl} target="_blank" rel="noreferrer">
-                  报告 HTML
-                </a>
-              )}
             </div>
           </div>
 
@@ -282,7 +273,7 @@ export default function ReviewStudio({
         </div>
       </section>
 
-      <div className="grid gap-6 2xl:grid-cols-[1.05fr,0.95fr]">
+      <div className="grid gap-6">
         <SurfaceCard
           title="打印版报告预览"
           subtitle="面向打印、归档与 PDF 导出优化的正式审改报告模板"
@@ -292,14 +283,6 @@ export default function ReviewStudio({
             <EmptyState text="完成真实审查后，这里会展示正式报告 HTML 的打印预览。" />
           ) : (
             <div className="space-y-4">
-              <div className="flex flex-wrap gap-3">
-                <button type="button" className="btn-primary" onClick={onOpenFormalReport}>
-                  在新标签打开
-                </button>
-                <button type="button" className="btn-outline" onClick={onPrintFormalReport}>
-                  调起打印
-                </button>
-              </div>
               <iframe
                 title="formal-report-preview"
                 src={reportFileUrl}
@@ -308,33 +291,13 @@ export default function ReviewStudio({
             </div>
           )}
         </SurfaceCard>
-
-        <SurfaceCard
-          title="报告模板说明"
-          subtitle="打印版面向归档与导师审阅，不再是 JSON dump"
-          icon={Files}
-        >
-          <div className="space-y-4">
-            {[
-              '封面级 Hero 展示论文题名、综合评分、问题数量与结论。',
-              '分类问题表按格式、文献、内容等类别分栏，适合打印审阅。',
-              'Evidence 卡片与工作流轨迹纳入正式报告，支撑复核与追责。',
-              '报告页内置 print CSS，可直接导出 PDF 作为正式产物。',
-            ].map((item) => (
-              <div key={item} className="timeline-item">
-                <div className="timeline-dot" />
-                <div className="timeline-text">{item}</div>
-              </div>
-            ))}
-          </div>
-        </SurfaceCard>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[280px,minmax(0,1fr),340px]">
-        <aside className="space-y-6">
+      <section className="space-y-6 min-w-0">
+        <div className="grid gap-6 xl:grid-cols-[1.05fr,0.95fr]">
           <SurfaceCard
             title="报告队列"
-            subtitle={results.length ? `${results.length} 份已生成报告` : '当前显示模板示例'}
+            subtitle={results.length ? `${results.length} 份已生成报告` : '当前显示模板示例报告'}
             icon={Files}
           >
             <div className="space-y-3">
@@ -370,11 +333,14 @@ export default function ReviewStudio({
             icon={LocateFixed}
           >
             <div className="space-y-2.5">
+              {navigatorItems.length === 0 && (
+                <EmptyState text="当前没有可快速定位的证据或问题。" />
+              )}
               {navigatorItems.map((item) => (
                 <button
                   key={item.key}
                   type="button"
-                  onClick={item.kind === 'workflow' ? () => onSelectWorkflow?.(item.id) : () => onJumpEvidence?.(item.id)}
+                  onClick={() => onJumpEvidence?.(item.id)}
                   className="navigator-item"
                 >
                   <div className={`severity-dot ${severityColor(item.severity)}`} />
@@ -387,12 +353,12 @@ export default function ReviewStudio({
               ))}
             </div>
           </SurfaceCard>
-        </aside>
+        </div>
 
-        <section className="space-y-6 min-w-0">
+        <div className="grid gap-6">
           <SurfaceCard
             title="格式预警与定位"
-            subtitle="突出格式错误、章节缺失与模板不一致，并附带定位信息"
+            subtitle="突出格式错误、章节缺失与模板不一致，并提供清晰定位"
             icon={FileWarning}
             actionLabel={formatIssues.length ? `${formatIssues.length} 项` : '无'}
           >
@@ -417,185 +383,140 @@ export default function ReviewStudio({
               onJump={onJumpEvidence}
             />
           </SurfaceCard>
+        </div>
 
-          <div className="grid gap-6 2xl:grid-cols-[0.9fr,1.1fr]">
-            <SurfaceCard
-              title="报告片段与证据链"
-              subtitle="Evidence 点击后可展开详情，并跳转至对应报告片段"
-              icon={ShieldAlert}
-            >
-              <div className="space-y-4">
-                {evidenceRecords.length === 0 && (
-                  <EmptyState text="当前报告没有 evidence 记录。" />
-                )}
-                {evidenceRecords.map((record) => (
-                  <div
-                    key={record.evidence_id}
-                    id={`report-evidence-${slugify(record.evidence_id)}`}
-                    className="evidence-card"
-                  >
-                    <div className="evidence-card-head">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className={`severity-pill ${severityPillClass(record.severity)}`}>{record.severity || 'info'}</span>
-                        <span className="mini-meta">{record.stage || '-'}</span>
-                        <span className="mini-meta">{formatLocation(record.location)}</span>
-                      </div>
-                      <button type="button" className="text-link" onClick={() => onSelectEvidence?.(record.evidence_id)}>
-                        查看详情
-                      </button>
-                    </div>
-                    <h4 className="evidence-card-title">{record.claim || '未命名 evidence'}</h4>
-                    {record.suggestion && (
-                      <p className="evidence-card-text">建议：{record.suggestion}</p>
-                    )}
-                    <div className="evidence-card-actions">
-                      <button type="button" className="btn-outline" onClick={() => onSelectEvidence?.(record.evidence_id)}>
-                        打开详情
-                      </button>
-                      <button type="button" className="btn-primary" onClick={() => onJumpEvidence?.(record.evidence_id)}>
-                        跳到报告片段
-                      </button>
+        <div className="grid gap-6 2xl:grid-cols-[1.05fr,0.95fr]">
+          <SurfaceCard
+            title="报告片段与证据链"
+            subtitle="展示关键问题的证据摘要，并支持跳转到对应报告片段"
+            icon={ShieldAlert}
+          >
+            <div className="space-y-4">
+              {evidenceRecords.length === 0 && (
+                <EmptyState text="当前报告暂无可定位证据。" />
+              )}
+              {evidenceRecords.map((record) => (
+                <div
+                  key={record.evidence_id}
+                  id={`report-evidence-${slugify(record.evidence_id)}`}
+                  className="evidence-card"
+                >
+                  <div className="evidence-card-head">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`severity-pill ${severityPillClass(record.severity)}`}>{record.severity || 'info'}</span>
+                      <span className="mini-meta">{record.stage || '-'}</span>
+                      <span className="mini-meta">{formatLocation(record.location)}</span>
                     </div>
                   </div>
-                ))}
-              </div>
-            </SurfaceCard>
-
-            <SurfaceCard
-              title="原文片段联动预览"
-              subtitle="按 Evidence 定位源论文片段，形成报告与原文双栏联动"
-              icon={ScanLine}
-            >
-              <SourceSnippetPanel snippetLoading={snippetLoading} sourceSnippet={sourceSnippet} />
-            </SurfaceCard>
-          </div>
-
-          <div className="grid gap-6 2xl:grid-cols-[0.95fr,1.05fr]">
-            <SurfaceCard
-              title="审改行动清单"
-              subtitle="按照风险优先级输出明确修订动作"
-              icon={ListChecks}
-            >
-              <div className="space-y-4">
-                {priorities.length === 0 && (
-                  <EmptyState text="当前没有生成审改行动建议。" />
-                )}
-                {priorities.map((block) => (
-                  <div key={block.title} className="priority-card">
-                    <div className="priority-head">
-                      <span className={`severity-pill ${severityPillClass(block.priority)}`}>{block.priority}</span>
-                      <span className="priority-title">{block.title}</span>
-                    </div>
-                    <div className="space-y-2.5">
-                      {(block.actions || []).map((action, index) => (
-                        <div key={`${block.title}-${index}`} className="priority-item">
-                          <ArrowRight className="h-4 w-4 text-primary-600" />
-                          <span>{action}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </SurfaceCard>
-
-            <SurfaceCard
-              title="内容审查摘录"
-              subtitle="保留最影响论文质量的写作与结构问题"
-              icon={Flag}
-            >
-              <div className="space-y-3">
-                {contentHighlights.length === 0 && (
-                  <EmptyState text="当前没有可展示的内容审查摘录。" />
-                )}
-                {contentHighlights.map((item, index) => (
-                  <div key={`content-${index}`} className="content-item">
-                    <div className="content-item-head">
-                      <span className={`severity-pill ${severityPillClass(item.severity)}`}>{item.severity || 'info'}</span>
-                      <span className="mini-meta">{item.location || '全文'}</span>
-                    </div>
-                    <p className="content-item-text">{item.description}</p>
-                  </div>
-                ))}
-              </div>
-            </SurfaceCard>
-
-            <SurfaceCard
-              title="报告问答"
-              subtitle="围绕当前结构化报告继续追问最关键的修改建议"
-              icon={Bot}
-            >
-              <div className="space-y-4">
-                <div className="rounded-2xl border border-slate-200 bg-white/70 p-4">
-                  <div className="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Prompt</div>
-                  <textarea
-                    value={question}
-                    onChange={(event) => onQuestionChange?.(event.target.value)}
-                    placeholder="例如：请按优先级总结最需要先改的 3 个问题，并说明定位依据。"
-                    className="min-h-28 w-full resize-y border-0 bg-transparent p-0 text-sm leading-7 text-slate-700 outline-none placeholder:text-slate-400"
-                  />
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    type="button"
-                    onClick={onAskQuestion}
-                    disabled={asking || usingTemplate}
-                    className="btn-primary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <Sparkles className="h-4 w-4" />
-                    {asking ? '思考中...' : '生成问答结论'}
-                  </button>
-                  {usingTemplate && (
-                    <span className="capsule capsule-muted">模板模式下不发起真实问答</span>
+                  <h4 className="evidence-card-title">{record.claim || '未命名 evidence'}</h4>
+                  {record.suggestion && (
+                    <p className="evidence-card-text">建议：{record.suggestion}</p>
                   )}
+                  <div className="evidence-card-actions">
+                    <button type="button" className="btn-primary" onClick={() => onJumpEvidence?.(record.evidence_id)}>
+                      跳转到对应片段
+                    </button>
+                  </div>
                 </div>
-                <div className="answer-panel">
-                  {answer || '这里将显示围绕当前论文审查结果生成的解释、优先级建议与答辩式说明。'}
+              ))}
+            </div>
+          </SurfaceCard>
+
+          <SurfaceCard
+            title="原文片段联动预览"
+            subtitle="点击任一证据后，在这里查看论文原文中的对应位置"
+            icon={ScanLine}
+          >
+            <SourceSnippetPanel snippetLoading={snippetLoading} sourceSnippet={sourceSnippet} />
+          </SurfaceCard>
+        </div>
+
+        <div className="grid gap-6 2xl:grid-cols-[1fr,1fr]">
+          <SurfaceCard
+            title="审改行动清单"
+            subtitle="按照风险优先级输出明确修订动作"
+            icon={ListChecks}
+          >
+            <div className="space-y-4">
+              {priorities.length === 0 && (
+                <EmptyState text="当前没有生成审改行动建议。" />
+              )}
+              {priorities.map((block) => (
+                <div key={block.title} className="priority-card">
+                  <div className="priority-head">
+                    <span className={`severity-pill ${severityPillClass(block.priority)}`}>{block.priority}</span>
+                    <span className="priority-title">{block.title}</span>
+                  </div>
+                  <div className="space-y-2.5">
+                    {(block.actions || []).map((action, index) => (
+                      <div key={`${block.title}-${index}`} className="priority-item">
+                        <ArrowRight className="h-4 w-4 text-primary-600" />
+                        <span>{action}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            </SurfaceCard>
-          </div>
-        </section>
+              ))}
+            </div>
+          </SurfaceCard>
 
-        <aside className="space-y-6">
-          <div className="sticky top-24 space-y-6">
-            <SurfaceCard
-              title="统一详情视图"
-              subtitle="节点、Evidence 与报告片段共用同一详情模型"
-              icon={Network}
-            >
-              {selectedDetail ? <DetailPanel detail={selectedDetail} onJump={onJumpEvidence} /> : <EmptyState text="点击节点或 evidence 后，这里展示正式详情页。" />}
-            </SurfaceCard>
+          <SurfaceCard
+            title="内容审查摘录"
+            subtitle="保留最影响论文质量的写作与结构问题"
+            icon={Flag}
+          >
+            <div className="space-y-3">
+              {contentHighlights.length === 0 && (
+                <EmptyState text="当前没有可展示的内容审查摘录。" />
+              )}
+              {contentHighlights.map((item, index) => (
+                <div key={`content-${index}`} className="content-item">
+                  <div className="content-item-head">
+                    <span className={`severity-pill ${severityPillClass(item.severity)}`}>{item.severity || 'info'}</span>
+                    <span className="mini-meta">{item.location || '全文'}</span>
+                  </div>
+                  <p className="content-item-text">{item.description}</p>
+                </div>
+              ))}
+            </div>
+          </SurfaceCard>
+        </div>
 
-            <SurfaceCard
-              title="工作流执行轨迹"
-              subtitle="帮助理解报告来源与执行阶段"
-              icon={CircleDot}
-            >
-              <div className="space-y-3">
-                {workflowNodes.length === 0 && <EmptyState text="没有可展示的工作流节点。" />}
-                {workflowNodes.map(([nodeId, node]) => (
-                  <button
-                    key={nodeId}
-                    type="button"
-                    onClick={() => onSelectWorkflow?.(nodeId)}
-                    className={`workflow-node ${detailTarget?.type === 'workflow' && detailTarget?.id === nodeId ? 'workflow-node-active' : ''}`}
-                  >
-                    <div className="workflow-node-head">
-                      <span className="workflow-title">{node.stage || nodeId}</span>
-                      <span className={`severity-pill ${statusPillClass(node.status)}`}>{node.status || 'pending'}</span>
-                    </div>
-                    <div className="workflow-meta">
-                      <span>{node.worker_binding || '未绑定 worker'}</span>
-                      <span>{node.critical ? '关键路径' : '普通节点'}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </SurfaceCard>
+        <SurfaceCard
+          title="报告问答"
+          subtitle="围绕当前结构化报告继续追问最关键的修改建议"
+          icon={Bot}
+        >
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-slate-200 bg-white/70 p-4">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">问题输入</div>
+              <textarea
+                value={question}
+                onChange={(event) => onQuestionChange?.(event.target.value)}
+                placeholder="例如：请按优先级总结最需要先改的 3 个问题，并说明定位依据。"
+                className="min-h-28 w-full resize-y border-0 bg-transparent p-0 text-sm leading-7 text-slate-700 outline-none placeholder:text-slate-400"
+              />
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={onAskQuestion}
+                disabled={asking || usingTemplate}
+                className="btn-primary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Sparkles className="h-4 w-4" />
+                {asking ? '思考中...' : '生成报告问答'}
+              </button>
+              {usingTemplate && (
+                <span className="capsule capsule-muted">模板模式下不发起真实问答</span>
+              )}
+            </div>
+            <div className="answer-panel">
+              {answer || '这里将显示围绕当前论文审查结果生成的解释、优先级建议与答辩式说明。'}
+            </div>
           </div>
-        </aside>
-      </div>
+        </SurfaceCard>
+      </section>
     </div>
   );
 }
@@ -642,15 +563,15 @@ function IssueTable({ items, emptyText, onLocate, onJump }) {
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200">
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] text-left">
+      <div className="min-w-0 overflow-x-auto">
+        <table className="w-full min-w-full table-fixed text-left">
           <thead className="bg-slate-50/80 text-xs uppercase tracking-[0.22em] text-slate-500">
             <tr>
-              <th className="px-4 py-3 font-medium">严重度</th>
-              <th className="px-4 py-3 font-medium">问题</th>
-              <th className="px-4 py-3 font-medium">定位</th>
-              <th className="px-4 py-3 font-medium">建议</th>
-              <th className="px-4 py-3 font-medium text-right">动作</th>
+              <th className="w-[108px] px-4 py-3 font-medium">严重度</th>
+              <th className="w-[31%] px-4 py-3 font-medium">问题</th>
+              <th className="w-[19%] px-4 py-3 font-medium">定位</th>
+              <th className="w-[30%] px-4 py-3 font-medium">建议</th>
+              <th className="w-[132px] px-4 py-3 font-medium text-right">动作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200 bg-white/80 text-sm text-slate-700">
@@ -660,13 +581,17 @@ function IssueTable({ items, emptyText, onLocate, onJump }) {
                   <span className={`severity-pill ${severityPillClass(item.severity)}`}>{item.severity || 'info'}</span>
                 </td>
                 <td className="px-4 py-4">
-                  <div className="font-medium text-slate-900">{item.title}</div>
+                  <div className="break-words font-medium text-slate-900">{item.title}</div>
                   {item.type && <div className="mt-1 text-xs text-slate-500">{item.type}</div>}
                 </td>
-                <td className="px-4 py-4 text-slate-600">{item.locator}</td>
-                <td className="px-4 py-4 text-slate-600">{item.suggestion || '建议人工复核后修订'}</td>
+                <td className="px-4 py-4 text-slate-600">
+                  <div className="break-words">{item.locator}</div>
+                </td>
+                <td className="px-4 py-4 text-slate-600">
+                  <div className="break-words">{item.suggestion || '建议人工复核后修订'}</div>
+                </td>
                 <td className="px-4 py-4">
-                  <div className="flex justify-end gap-2">
+                  <div className="flex flex-wrap justify-end gap-2">
                     {item.evidenceId && (
                       <button type="button" className="btn-outline" onClick={() => onLocate?.(item.evidenceId)}>
                         详情
@@ -688,49 +613,11 @@ function IssueTable({ items, emptyText, onLocate, onJump }) {
   );
 }
 
-function DetailPanel({ detail, onJump }) {
-  return (
-    <div className="space-y-4">
-      <div>
-        <h4 className="text-base font-semibold text-slate-900">{detail.title}</h4>
-        {detail.subtitle && <p className="mt-1 text-sm text-slate-500">{detail.subtitle}</p>}
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        {detail.cards.map((card) => (
-          <div key={card.label} className="rounded-2xl border border-slate-200 bg-slate-50/70 px-3 py-3">
-            <div className="text-xs uppercase tracking-[0.2em] text-slate-500">{card.label}</div>
-            <div className="mt-1 text-sm font-medium text-slate-900">{card.value}</div>
-          </div>
-        ))}
-      </div>
-      <div className="space-y-3">
-        {detail.sections.map((section) => (
-          <div key={section.title} className="rounded-2xl border border-slate-200 bg-white/70 p-4">
-            <div className="mb-2 text-sm font-semibold text-slate-900">{section.title}</div>
-            <div className="space-y-2">
-              {section.items.map((item, index) => (
-                <div key={`${section.title}-${index}`} className="text-sm leading-6 text-slate-600">
-                  {item}
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-      {detail.jumpEvidenceId && (
-        <button type="button" className="btn-primary w-full justify-center" onClick={() => onJump?.(detail.jumpEvidenceId)}>
-          跳到对应报告片段
-        </button>
-      )}
-    </div>
-  );
-}
-
 function EmptyState({ text }) {
   return (
     <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/70 px-4 py-8 text-center text-sm text-slate-500">
       <Files className="mx-auto mb-3 h-5 w-5 text-slate-400" />
-      <div className="mb-1 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Empty State</div>
+      <div className="mb-1 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">暂无内容</div>
       {text}
     </div>
   );
@@ -738,11 +625,11 @@ function EmptyState({ text }) {
 
 function SourceSnippetPanel({ snippetLoading, sourceSnippet }) {
   if (snippetLoading) {
-    return <EmptyState text="正在加载与当前 Evidence 对应的原文片段。" />;
+    return <EmptyState text="正在加载与当前证据对应的原文片段。" />;
   }
 
   if (!sourceSnippet) {
-    return <EmptyState text="点击任一 Evidence 后，这里会展示源论文中的对应片段。" />;
+    return <EmptyState text="点击任一证据后，这里会展示源论文中的对应片段。" />;
   }
 
   const excerpt = sourceSnippet?.snippet?.excerpt || [];
@@ -752,7 +639,7 @@ function SourceSnippetPanel({ snippetLoading, sourceSnippet }) {
       <div className="snippet-header">
         <div>
           <div className="snippet-title">{sourceSnippet.source_name || '原文片段'}</div>
-          <div className="snippet-meta">{sourceSnippet.claim || '未提供 claim'}</div>
+          <div className="snippet-meta">{sourceSnippet.claim || '未提供问题摘要'}</div>
         </div>
         <span className="capsule capsule-muted">{sourceSnippet?.snippet?.source_kind || 'unknown'}</span>
       </div>
@@ -808,7 +695,7 @@ function buildSummaryCards(review, formatIssues, referenceIssues, evidenceRecord
       icon: BookMarked,
     },
     {
-      label: 'Evidence',
+      label: '证据记录',
       value: String(evidenceRecords.length),
       detail: '可定位证据记录',
       toneClass: 'text-sky-600',
@@ -863,72 +750,6 @@ function buildNavigatorItems(evidenceRecords, formatIssues, referenceIssues) {
   }));
 
   return [...evidenceItems, ...issueItems].filter((item) => item.id);
-}
-
-function buildDetailModel(review, detailTarget) {
-  if (!detailTarget?.id) {
-    const firstEvidence = review.evidence_records?.[0];
-    if (firstEvidence) {
-      return detailFromEvidence(firstEvidence);
-    }
-    const firstWorkflow = Object.entries(review.workflow?.graph || {})[0];
-    if (firstWorkflow) {
-      return detailFromWorkflow(firstWorkflow[0], firstWorkflow[1], review);
-    }
-    return null;
-  }
-
-  if (detailTarget.type === 'workflow') {
-    const node = review.workflow?.graph?.[detailTarget.id];
-    return node ? detailFromWorkflow(detailTarget.id, node, review) : null;
-  }
-
-  const evidence = (review.evidence_records || []).find((item) => item.evidence_id === detailTarget.id);
-  return evidence ? detailFromEvidence(evidence) : null;
-}
-
-function detailFromWorkflow(nodeId, node, review) {
-  const relatedEvidence = (review.evidence_records || [])
-    .filter((record) => record.stage === node.stage || record.stage === simplifyStage(node.stage))
-    .map((record) => `${record.evidence_id}: ${record.claim || '-'}`);
-  const relatedEvents = (review.workflow?.events || [])
-    .filter((event) => event.stage === node.stage)
-    .map((event) => `${event.event_type || 'event'} @ ${formatTimestamp(event.timestamp)}`);
-
-  return {
-    title: node.stage || nodeId,
-    subtitle: `节点 ID: ${nodeId}`,
-    cards: [
-      { label: '状态', value: node.status || 'pending' },
-      { label: 'Worker', value: node.worker_binding || '-' },
-      { label: '关键路径', value: node.critical ? '是' : '否' },
-      { label: '依赖', value: String((node.dependencies || []).length) },
-    ],
-    sections: [
-      { title: '依赖关系', items: (node.dependencies || []).length ? node.dependencies : ['无上游依赖'] },
-      { title: '关联事件', items: relatedEvents.length ? relatedEvents : ['暂无关联事件'] },
-      { title: '关联证据', items: relatedEvidence.length ? relatedEvidence : ['暂无关联证据'] },
-    ],
-  };
-}
-
-function detailFromEvidence(record) {
-  return {
-    title: record.claim || 'Evidence Detail',
-    subtitle: `Evidence ID: ${record.evidence_id || '-'}`,
-    cards: [
-      { label: '严重度', value: record.severity || 'info' },
-      { label: '阶段', value: record.stage || '-' },
-      { label: '定位', value: formatLocation(record.location) },
-      { label: '来源', value: record.source_type || record.stage || '-' },
-    ],
-    sections: [
-      { title: '问题陈述', items: [record.claim || '暂无 claim'] },
-      { title: '修订建议', items: [record.suggestion || '暂无建议'] },
-      { title: '定位信息', items: [formatLocation(record.location)] },
-    ],
-    jumpEvidenceId: record.evidence_id,
-  };
 }
 
 function extractFormatIssues(review) {

@@ -228,7 +228,7 @@
   }
 
   .surface-card {
-    @apply p-5 lg:p-6;
+    @apply min-w-0 p-5 lg:p-6;
   }
 
   .surface-card-head {
