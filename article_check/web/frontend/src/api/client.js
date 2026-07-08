@@ -37,20 +37,6 @@ export const api = {
   }),
   reportFileUrl: (path) => `${BASE}/report/file?path=${encodeURIComponent(path)}`,
 
-  // Literature
-  search: (query, sources, limit) => request('/literature/search', {
-    method: 'POST', body: JSON.stringify({ query, sources, limit_per_source: limit }),
-  }),
-  survey: (query, refs) => request('/literature/survey', {
-    method: 'POST', body: JSON.stringify({ query, existing_refs: refs }),
-  }),
-  surveyMarkdown: (query) => fetch(`${BASE}/literature/survey/markdown?query=${encodeURIComponent(query)}`).then(r=>r.text()),
-
-  // Submission
-  submissionCheck: (paperPath, journal, stage) => request('/check/submission', {
-    method: 'POST', body: JSON.stringify({ paper_path: paperPath, journal, stage }),
-  }),
-
   // Stream
   batchStream: (paths) => {
     return fetch(`${BASE}/review/batch-stream`, {

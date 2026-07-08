@@ -55,7 +55,7 @@ class DifyConfig:
 @dataclass
 class AIConfig:
     """AI Provider 配置"""
-    provider: str = field(default_factory=lambda: os.getenv("ARTICLE_CHECK_AI_PROVIDER", "deepseek").lower())
+    provider: str = field(default_factory=lambda: os.getenv("ARTICLE_CHECK_AI_PROVIDER", "dify").lower())
 
 
 @dataclass

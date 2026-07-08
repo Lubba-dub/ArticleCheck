@@ -43,29 +43,6 @@ class ReviewRequest(BaseModel):
     with_deep_review: bool = False
 
 
-class SearchRequest(BaseModel):
-    query: str
-    sources: List[str] = ["semantic_scholar", "openalex", "crossref", "arxiv"]
-    limit_per_source: int = 10
-
-
-class SurveyRequest(BaseModel):
-    query: str
-    depth: str = "standard"
-    existing_refs: Optional[List[str]] = None
-
-
-class SubmissionCheckRequest(BaseModel):
-    paper_path: str
-    journal: str
-    stage: str = "initial"
-
-
-class FixRequest(BaseModel):
-    paper_path: str
-    issues: List[Dict[str, Any]]
-
-
 class ReportDialogueRequest(BaseModel):
     report_payload: Dict[str, Any]
     question: str
@@ -281,17 +258,13 @@ async def get_status():
     """系统状态检查"""
     from article_check.config.settings import config
     from article_check.rules.registry import template_registry
-    from article_check.references import ReferenceEngine
-    from article_check.literature import LiteratureSearcher, SurveyGenerator
 
     return api_success({
         "version": "0.3.0",
         "ai_provider": config.ai.provider,
         "dify_enabled": bool(config.dify.api_key),
-        "deepseek_api": bool(config.deepseek.api_key),
         "templates": template_registry.count,
         "templates_list": [t.name for t in template_registry.list_all()],
-        "lit_sources": ["semantic_scholar", "openalex", "crossref", "arxiv"],
     })
 
 
@@ -400,145 +373,6 @@ async def get_report_source_snippet(req: EvidenceSnippetRequest):
     })
 
 
-# ─── Literature Search ──────────────────────────────────
-
-@app.post("/api/literature/search")
-async def search_literature(req: SearchRequest):
-    """多源平行文献搜索"""
-    from article_check.literature import LiteratureSearcher
-    searcher = LiteratureSearcher()
-    papers = await searcher.parallel_search(
-        req.query,
-        sources=req.sources,
-        limit_per_source=req.limit_per_source,
-    )
-    return api_success({
-        "query": req.query,
-        "sources": req.sources,
-        "count": len(papers),
-        "papers": [
-            {
-                "title": p.title[:120],
-                "authors": p.authors[:3],
-                "year": p.year,
-                "doi": p.doi,
-                "venue": p.venue,
-                "citation_count": p.citation_count,
-                "source": p.source,
-            }
-            for p in papers
-        ],
-    })
-
-
-# ─── Citation Network ───────────────────────────────────
-
-@app.post("/api/literature/citation-network")
-async def citation_network(papers: List[Dict[str, Any]]):
-    """引文网络分析"""
-    from article_check.literature.citation import CitationAnalyzer, CitationNode
-    analyzer = CitationAnalyzer()
-    nodes = [
-        CitationNode(
-            paper_id=p.get("id", f"p{i}"),
-            title=p.get("title", ""),
-            year=p.get("year"),
-            citations_count=p.get("citations", 0),
-            doi=p.get("doi"),
-        )
-        for i, p in enumerate(papers)
-    ]
-    for node in nodes:
-        analyzer.graph.nodes[node.paper_id] = node
-    return api_success({
-        "nodes": [
-            {"id": n.paper_id, "title": n.title[:50], "year": n.year, "citations": n.citations_count}
-            for n in nodes
-        ],
-    })
-
-
-# ─── Survey ─────────────────────────────────────────────
-
-@app.post("/api/literature/survey")
-async def generate_survey(req: SurveyRequest):
-    """自动综述生成"""
-    from article_check.literature import SurveyGenerator
-    gen = SurveyGenerator()
-    survey = await gen.generate(req.query, req.existing_refs, req.depth)
-    return api_success({
-        "title": survey.title,
-        "abstract": survey.abstract,
-        "sections": [
-            {
-                "title": s.title,
-                "paper_count": len(s.papers),
-                "papers": [
-                    {"title": p.title[:60], "year": p.year, "authors": p.authors[:2]}
-                    for p in s.papers[:8]
-                ],
-            }
-            for s in survey.sections
-        ],
-        "trends": survey.trends,
-        "missing_refs": [
-            {"title": p.title[:60], "year": p.year}
-            for p in survey.missing_refs
-        ],
-    })
-
-
-@app.get("/api/literature/survey/markdown")
-async def get_survey_markdown(query: str = Query(...)):
-    """获取综述 Markdown"""
-    from article_check.literature import SurveyGenerator
-    gen = SurveyGenerator()
-    survey = await gen.generate(query)
-    return HTMLResponse(survey.to_markdown())
-
-
-# ─── Submission Check ───────────────────────────────────
-
-@app.post("/api/check/submission")
-async def check_submission(req: SubmissionCheckRequest):
-    """投稿就绪检查"""
-    from article_check.checkers import SubmissionChecker
-    checker = SubmissionChecker(req.journal, req.stage)
-    report = checker.check(req.paper_path)
-    return api_success({
-        "journal": report.journal,
-        "stage": report.stage,
-        "passed": report.passed,
-        "failed": report.failed,
-        "total": report.total,
-        "ready": report.ready,
-        "items": [
-            {
-                "name": i.name,
-                "category": i.category,
-                "status": i.status,
-                "detail": i.detail,
-                "suggestion": i.suggestion,
-            }
-            for i in report.items
-        ],
-    })
-
-
-# ─── Fix ────────────────────────────────────────────────
-
-@app.post("/api/fix")
-async def fix_paper(req: FixRequest):
-    """自动修正论文格式"""
-    from article_check.fixers import DocxAutoFixer
-    fixer = DocxAutoFixer()
-    fixes = fixer.apply(req.paper_path, req.issues)
-    return api_success({
-        "fixes": fixes,
-        "count": len(fixes),
-    })
-
-
 # ─── Stream Review (SSE) ───────────────────────────────
 
 @app.post("/api/review/batch-stream")
@@ -573,7 +407,12 @@ async def batch_review_stream(paths: List[str]):
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-# ─── Static Files / SPA ────────────────────────────────
+# ─── Health / Static Files / SPA ───────────────────────
+
+@app.get("/api/health")
+async def health():
+    return {"status": "healthy", "service": "article-check-api"}
+
 
 from fastapi.staticfiles import StaticFiles
 
@@ -604,12 +443,7 @@ async def frontend_spa_fallback(full_path: str):
     index_path = FRONTEND_DIR / "index.html"
     return HTMLResponse(index_path.read_text(encoding="utf-8"))
 
-
 # ─── CLI Entry ──────────────────────────────────────────
-
-@app.get("/api/health")
-async def health():
-    return {"status": "healthy", "service": "article-check-api"}
 
 
 def run_server(host: str = "127.0.0.1", port: int = 8765):

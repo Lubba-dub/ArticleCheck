@@ -12,6 +12,7 @@ import json
 import logging
 import re
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -73,38 +74,15 @@ class DifyClient:
         start = time.time()
 
         if self.app_type in {"workflow", "workflow_app"}:
-            payload = {
-                "inputs": {
-                    **self.default_inputs,
-                    self.workflow_query_key: prompt,
-                },
-                "response_mode": "streaming" if stream else self.response_mode,
-                "user": self.user,
-            }
-            endpoint = "/workflows/run"
+            data = self.run_workflow(
+                inputs={self.workflow_query_key: prompt},
+                stream=stream,
+            )
         else:
-            payload = {
-                "inputs": self.default_inputs,
-                "query": prompt,
-                "response_mode": "streaming" if stream else self.response_mode,
-                "user": self.user,
-                "conversation_id": "",
-            }
-            endpoint = "/chat-messages"
-
-        try:
-            response = self._client.post(endpoint, json=payload)
-            response.raise_for_status()
-            data = response.json()
-        except httpx.TimeoutException:
-            logger.error("Dify API 请求超时")
-            raise
-        except httpx.HTTPStatusError as exc:
-            logger.error("Dify API HTTP 错误: %s %s", exc.response.status_code, exc.response.text)
-            raise
-        except Exception as exc:
-            logger.error("Dify API 请求失败: %s", exc)
-            raise
+            data = self.run_chat_app(
+                query=prompt,
+                stream=stream,
+            )
 
         elapsed = time.time() - start
         content, usage = self._extract_content_and_usage(data)
@@ -116,6 +94,94 @@ class DifyClient:
             model=f"dify:{self.app_type}",
             latency=elapsed,
         )
+
+    def run_chat_app(
+        self,
+        query: str,
+        *,
+        inputs: Optional[Dict[str, Any]] = None,
+        files: Optional[List[Dict[str, Any]]] = None,
+        conversation_id: str = "",
+        user: Optional[str] = None,
+        stream: bool = False,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "inputs": {
+                **self.default_inputs,
+                **(inputs or {}),
+            },
+            "query": query,
+            "response_mode": "streaming" if stream else self.response_mode,
+            "user": user or self.user,
+            "conversation_id": conversation_id,
+        }
+        if files:
+            payload["files"] = files
+        return self._post_json("/chat-messages", payload)
+
+    def run_workflow(
+        self,
+        inputs: Dict[str, Any],
+        *,
+        user: Optional[str] = None,
+        stream: bool = False,
+    ) -> Dict[str, Any]:
+        payload = {
+            "inputs": {
+                **self.default_inputs,
+                **inputs,
+            },
+            "response_mode": "streaming" if stream else self.response_mode,
+            "user": user or self.user,
+        }
+        return self._post_json("/workflows/run", payload)
+
+    def upload_file(
+        self,
+        file_path: str | Path,
+        *,
+        user: Optional[str] = None,
+        mime_type: str = "application/octet-stream",
+    ) -> Dict[str, Any]:
+        path = Path(file_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Dify upload file not found: {path}")
+
+        with path.open("rb") as file_handle:
+            try:
+                response = httpx.post(
+                    f"{self.base_url}/files/upload",
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    files={"file": (path.name, file_handle, mime_type)},
+                    data={"user": user or self.user},
+                    timeout=self.timeout,
+                )
+                response.raise_for_status()
+                return response.json()
+            except httpx.TimeoutException:
+                logger.error("Dify 文件上传超时: %s", path)
+                raise
+            except httpx.HTTPStatusError as exc:
+                logger.error("Dify 文件上传 HTTP 错误: %s %s", exc.response.status_code, exc.response.text)
+                raise
+            except Exception as exc:
+                logger.error("Dify 文件上传失败: %s", exc)
+                raise
+
+    def _post_json(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            response = self._client.post(endpoint, json=payload)
+            response.raise_for_status()
+            return response.json()
+        except httpx.TimeoutException:
+            logger.error("Dify API 请求超时")
+            raise
+        except httpx.HTTPStatusError as exc:
+            logger.error("Dify API HTTP 错误: %s %s", exc.response.status_code, exc.response.text)
+            raise
+        except Exception as exc:
+            logger.error("Dify API 请求失败: %s", exc)
+            raise
 
     def structured_chat(
         self,

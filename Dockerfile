@@ -4,14 +4,14 @@
 # ==========================================================
 
 # ─── Stage 1: 前端构建 (Node.js) ─────────────────────────
-FROM node:20-alpine AS frontend-builder
+FROM node:20 AS frontend-builder
 
 WORKDIR /build/frontend
 
 # 依赖层缓存
 COPY article_check/web/frontend/package.json \
      article_check/web/frontend/package-lock.json* ./
-RUN npm ci --omit=dev 2>/dev/null || npm install --omit=dev
+RUN npm ci --include=dev 2>/dev/null || npm install --include=dev
 
 # 源码 + 构建
 COPY article_check/web/frontend/ .
@@ -36,16 +36,14 @@ WORKDIR /app
 # Python 依赖层缓存
 COPY pyproject.toml requirements.txt ./
 RUN pip install --no-cache-dir -e . 2>/dev/null || \
-    pip install --no-cache-dir -r requirements.txt fastapi uvicorn python-multipart
+    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir fastapi uvicorn python-multipart
 
 # 复制前端产物
 COPY --from=frontend-builder /build/frontend/dist /app/article_check/web/frontend/dist
 
 # 复制源码
 COPY article_check/ /app/article_check/
-COPY knowledge/ /app/knowledge/
-COPY reports/ /app/reports/
-COPY uploads/ /app/uploads/
 
 # 运行时目录
 RUN mkdir -p /app/reports /app/uploads /app/.worktrees

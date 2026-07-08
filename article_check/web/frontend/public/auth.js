@@ -1,13 +1,30 @@
 (() => {
+  const searchParams = new URLSearchParams(window.location.search);
+  const isLocalhost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
   const defaultConfig = {
-    enabled: !['localhost', '127.0.0.1'].includes(window.location.hostname),
+    enabled: !isLocalhost,
+    mode: 'prod_api_idp',
+    apiBase: '/prod-api',
     host: 'http://124.71.226.114:8444',
+    callbackPath: '/auth/login',
     storagePrefix: 'article_check_platform_',
     debug: false,
   };
 
   const runtimeConfig = window.__ARTICLE_CHECK_PLATFORM_AUTH__ || {};
-  const config = { ...defaultConfig, ...runtimeConfig };
+  const config = {
+    ...defaultConfig,
+    ...runtimeConfig,
+  };
+  if (searchParams.has('forcePlatformAuth')) {
+    config.enabled = true;
+  }
+  if (searchParams.has('authMode')) {
+    config.mode = searchParams.get('authMode');
+  }
+  if (searchParams.has('authApiBase')) {
+    config.apiBase = searchParams.get('authApiBase');
+  }
 
   const log = (...args) => {
     if (config.debug) {
@@ -20,19 +37,29 @@
     return;
   }
 
+  const accessTokenKey = `${config.storagePrefix}access_token`;
+  const refreshTokenKey = `${config.storagePrefix}refresh_token`;
+  const idTokenKey = `${config.storagePrefix}id_token`;
+  const expiresInKey = `${config.storagePrefix}expires_in`;
+  const userInfoKey = `${config.storagePrefix}user_info`;
+  const returnToKey = `${config.storagePrefix}return_to`;
+
   const API = {
-    OAUTH: {
+    LEGACY_OAUTH: {
       AUTH: `${config.host}/api/oauth/auth`,
       TOKEN: `${config.host}/api/oauth/token`,
       REFRESH: `${config.host}/api/oauth/refresh`,
       INTROSPECT: `${config.host}/api/oauth/introspect`,
     },
+    PROD_API_IDP: {
+      AUTH: `${config.apiBase}/auth/idp/auth`,
+      TOKEN_BY_CODE: `${config.apiBase}/auth/idp/get-token-by-auth-code`,
+      GET_INFO: `${config.apiBase}/system/user/idp/getInfo`,
+      GET_ROUTERS: `${config.apiBase}/system/menu/getRouters`,
+    },
   };
 
-  const accessTokenKey = `${config.storagePrefix}access_token`;
-  const refreshTokenKey = `${config.storagePrefix}refresh_token`;
-  const idTokenKey = `${config.storagePrefix}id_token`;
-  const expiresInKey = `${config.storagePrefix}expires_in`;
+  installFetchInterceptor();
 
   auth().then((ok) => {
     if (!ok) {
@@ -41,15 +68,17 @@
   });
 
   async function auth() {
-    const paramsString = window.location.search;
-    const pathParams = new URLSearchParams(paramsString);
-    const code = pathParams.get('code');
-    const state = pathParams.get('state');
+    const code = searchParams.get('code');
+    const state = searchParams.get('state');
 
     if (!code) {
       const accessToken = localStorage.getItem(accessTokenKey);
       if (!accessToken) {
         return redirect();
+      }
+
+      if (config.mode === 'prod_api_idp') {
+        return validateProdApiSession();
       }
 
       const expiresIn = localStorage.getItem(expiresInKey);
@@ -61,17 +90,43 @@
 
     log('oauth callback', { code, state });
     const result = await getToken(code, state);
-    window.history.replaceState({}, document.title, window.location.pathname);
+    const returnTo = localStorage.getItem(returnToKey) || '/';
+    localStorage.removeItem(returnToKey);
+    window.history.replaceState({}, document.title, returnTo);
     return result;
   }
 
   async function redirect() {
+    if (window.location.pathname !== config.callbackPath) {
+      localStorage.setItem(
+        returnToKey,
+        `${window.location.pathname}${window.location.search}${window.location.hash}`
+      );
+    }
+
+    if (config.mode === 'prod_api_idp') {
+      const redirectUri = `${window.location.origin}${config.callbackPath}`;
+      const url = `${API.PROD_API_IDP.AUTH}?redirectUri=${encodeURIComponent(redirectUri)}`;
+
+      try {
+        const result = await fetchJson(url);
+        const authUrl = unwrapData(result);
+        if (!authUrl) {
+          throw new Error('missing auth url');
+        }
+        window.location.href = authUrl;
+        return true;
+      } catch (error) {
+        console.error('redirect prod-api auth error:', error);
+        return false;
+      }
+    }
+
     const redirectUri = window.location.origin + window.location.pathname;
-    const url = `${API.OAUTH.AUTH}?redirectUri=${encodeURIComponent(redirectUri)}`;
+    const url = `${API.LEGACY_OAUTH.AUTH}?redirectUri=${encodeURIComponent(redirectUri)}`;
 
     try {
-      const response = await fetch(url, { method: 'GET', redirect: 'follow' });
-      const result = await response.json();
+      const result = await fetchJson(url);
       window.location.href = result.auth_url;
       return true;
     } catch (error) {
@@ -81,19 +136,46 @@
   }
 
   async function getToken(code) {
+    if (config.mode === 'prod_api_idp') {
+      try {
+        const result = await fetchJson(`${API.PROD_API_IDP.TOKEN_BY_CODE}/${encodeURIComponent(code)}`);
+        const data = unwrapData(result) || {};
+        const accessToken = data.accessToken || data.access_token || '';
+        const refreshToken = data.refreshToken || data.refresh_token || '';
+        const idToken = data.idToken || data.id_token || '';
+        const expiresIn = data.expiresIn || data.expires_in || 3600;
+
+        if (!accessToken) {
+          throw new Error('missing accessToken');
+        }
+
+        localStorage.setItem(accessTokenKey, accessToken);
+        localStorage.setItem(refreshTokenKey, refreshToken);
+        localStorage.setItem(idTokenKey, idToken);
+        localStorage.setItem(expiresInKey, Date.now() + (Number(expiresIn) * 1000));
+
+        await loadUserInfo();
+        await warmRouters();
+        return true;
+      } catch (error) {
+        console.error('get prod-api token error:', error);
+        clearTokens();
+        return false;
+      }
+    }
+
     const raw = JSON.stringify({
       code,
       redirect_uri: window.location.origin + window.location.pathname,
     });
 
     try {
-      const response = await fetch(API.OAUTH.TOKEN, {
+      const result = await fetchJson(API.LEGACY_OAUTH.TOKEN, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: raw,
         redirect: 'follow',
       });
-      const result = await response.json();
       localStorage.setItem(accessTokenKey, result.access_token);
       localStorage.setItem(refreshTokenKey, result.refresh_token);
       localStorage.setItem(idTokenKey, result.id_token);
@@ -107,7 +189,7 @@
 
   async function refreshToken() {
     try {
-      const response = await fetch(API.OAUTH.REFRESH, {
+      const result = await fetchJson(API.LEGACY_OAUTH.REFRESH, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -115,7 +197,6 @@
         }),
         redirect: 'follow',
       });
-      const result = await response.json();
       localStorage.setItem(accessTokenKey, result.access_token);
       localStorage.setItem(refreshTokenKey, result.refresh_token);
       localStorage.setItem(idTokenKey, result.id_token);
@@ -129,7 +210,7 @@
 
   async function introspectToken() {
     try {
-      const response = await fetch(API.OAUTH.INTROSPECT, {
+      const result = await fetchJson(API.LEGACY_OAUTH.INTROSPECT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -137,7 +218,6 @@
         }),
         redirect: 'follow',
       });
-      const result = await response.json();
       if (result.active !== true) {
         return redirect();
       }
@@ -146,5 +226,115 @@
       console.error('introspect token error:', error);
       return false;
     }
+  }
+
+  async function validateProdApiSession() {
+    try {
+      await loadUserInfo();
+      return true;
+    } catch (error) {
+      console.error('validate prod-api session error:', error);
+      clearTokens();
+      return redirect();
+    }
+  }
+
+  async function loadUserInfo() {
+    const result = await fetchJson(API.PROD_API_IDP.GET_INFO, {
+      method: 'GET',
+      headers: buildAuthHeaders(),
+    });
+    const data = unwrapData(result) || {};
+    localStorage.setItem(userInfoKey, JSON.stringify(data));
+    window.__ARTICLE_CHECK_AUTH_CONTEXT__ = data;
+    return data;
+  }
+
+  async function warmRouters() {
+    try {
+      await fetchJson(API.PROD_API_IDP.GET_ROUTERS, {
+        method: 'GET',
+        headers: buildAuthHeaders(),
+      });
+    } catch (error) {
+      log('warm routers failed', error);
+    }
+  }
+
+  function buildAuthHeaders(extraHeaders = {}) {
+    const accessToken = localStorage.getItem(accessTokenKey);
+    const refreshToken = localStorage.getItem(refreshTokenKey);
+    const headers = { ...extraHeaders };
+    if (accessToken) {
+      headers.Authorization = accessToken.startsWith('Bearer ')
+        ? accessToken
+        : `Bearer ${accessToken}`;
+    }
+    if (refreshToken) {
+      headers['refresh-token'] = refreshToken.startsWith('Bearer ')
+        ? refreshToken
+        : `Bearer ${refreshToken}`;
+    }
+    return headers;
+  }
+
+  function clearTokens() {
+    localStorage.removeItem(accessTokenKey);
+    localStorage.removeItem(refreshTokenKey);
+    localStorage.removeItem(idTokenKey);
+    localStorage.removeItem(expiresInKey);
+    localStorage.removeItem(userInfoKey);
+  }
+
+  function installFetchInterceptor() {
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = (input, init = {}) => {
+      const url = typeof input === 'string' ? input : input?.url || '';
+      if (!shouldAttachProdApiHeaders(url)) {
+        return originalFetch(input, init);
+      }
+      const mergedHeaders = buildAuthHeaders(normalizeHeaders(init.headers));
+      return originalFetch(input, {
+        ...init,
+        headers: mergedHeaders,
+      });
+    };
+  }
+
+  function shouldAttachProdApiHeaders(url) {
+    if (config.mode !== 'prod_api_idp') {
+      return false;
+    }
+    return url.startsWith('/prod-api/') || url.includes(`${window.location.origin}/prod-api/`);
+  }
+
+  function normalizeHeaders(headers) {
+    if (!headers) {
+      return {};
+    }
+    if (headers instanceof Headers) {
+      const plain = {};
+      headers.forEach((value, key) => {
+        plain[key] = value;
+      });
+      return plain;
+    }
+    return { ...headers };
+  }
+
+  async function fetchJson(url, options = {}) {
+    const response = await fetch(url, options);
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`${response.status} ${text}`);
+    }
+    return response.json();
+  }
+
+  function unwrapData(result) {
+    if (result && typeof result === 'object' && 'data' in result) {
+      return result.data;
+    }
+    return result;
   }
 })();

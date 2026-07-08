@@ -5,14 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "article-check"
 version = "0.1.0"
-description = "学术论文审查智能体 — 基于 DeepSeek API 的格式审查与文献审查系统"
+description = "学术论文审查平台最小交付版 — WebDemo + FastAPI 网关 + Dify 多应用编排"
 readme = "README.md"
 authors = [
     {name = "ShaoPaodiao", email = "18519101256@163.com"},
 ]
 license = {text = "MIT"}
 requires-python = ">=3.10"
-keywords = ["academic", "paper-review", "latex", "docx", "deepseek", "ai-agent"]
+keywords = ["academic", "paper-review", "webdemo", "fastapi", "dify", "docker"]
 
 dependencies = [
     "httpx>=0.27",
@@ -34,9 +34,6 @@ dev = [
 [project.urls]
 Homepage = "https://github.com/ShaoPaodiao/article-check"
 Repository = "https://github.com/ShaoPaodiao/article-check.git"
-
-[project.scripts]
-article-check = "article_check.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["article_check*"]

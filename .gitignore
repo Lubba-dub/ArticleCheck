@@ -26,6 +26,9 @@ reports/
 .cache/
 .article_check/
 
+# Large binary / design docs
+*.pptx
+
 # OS
 Thumbs.db
 .DS_Store

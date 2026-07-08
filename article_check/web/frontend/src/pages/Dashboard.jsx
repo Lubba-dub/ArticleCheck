@@ -1,13 +1,10 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Activity, BookOpen, CheckSquare, FileCheck, FileText, Search, ShieldAlert, Sparkles, TrendingUp } from 'lucide-react';
+import { Activity, FileCheck, FileText, ShieldAlert, Sparkles, TrendingUp } from 'lucide-react';
 
 export default function Dashboard({ status }) {
   const cards = [
     { label: '论文审查', value: '正式报告模板 + 证据定位', icon: FileText, to: '/review' },
-    { label: '文献检索', value: '多源搜索与引用发现', icon: Search, to: '/literature' },
-    { label: '自动综述', value: '趋势、聚类与相关工作概览', icon: BookOpen, to: '/survey' },
-    { label: '投稿检查', value: '规则闸门与就绪度判断', icon: CheckSquare, to: '/submission' },
   ];
   const features = [
     { icon: FileText, title: '正式报告模板', desc: '将格式、文献、内容与 evidence 收束为统一审查报告', tone: 'text-primary-700' },
@@ -25,11 +22,10 @@ export default function Dashboard({ status }) {
             <div className="capsule capsule-primary">Academic Review System</div>
             <h1 className="hero-title">把论文审查做成一份真正可交付的正式报告</h1>
             <p className="hero-text">
-              面向“本科毕业论文格式核查 + 参考文献有效性验证 + 审改建议输出”的统一工作台。网页不再只是工具入口，而是正式报告、证据链和修改行动的可视化中枢。
+              面向“本科毕业论文格式核查 + 参考文献有效性验证 + 审改建议输出”的统一工作台。当前版本收束为 WebDemo + FastAPI 网关 + Dify 多应用编排 + 官方认证接入的最小平台交付形态。
             </p>
             <div className="flex flex-wrap gap-3">
               <Link to="/review" className="btn-primary">进入报告工作台</Link>
-              <Link to="/literature" className="btn-outline">查看文献检索</Link>
             </div>
           </div>
 
@@ -39,22 +35,22 @@ export default function Dashboard({ status }) {
               <span className={`capsule ${status ? 'capsule-success' : 'capsule-danger'}`}>{status ? '在线' : '离线'}</span>
             </div>
             <div className="hero-panel-row">
-              <span>DeepSeek</span>
-              <span>{status?.deepseek_api ? '已配置' : '未配置'}</span>
+              <span>Dify</span>
+              <span>{status?.dify_enabled ? '已接入' : '待配置'}</span>
             </div>
             <div className="hero-panel-row">
               <span>模板数量</span>
               <span>{status?.templates || 0}</span>
             </div>
             <div className="hero-panel-row">
-              <span>检索源</span>
-              <span>{status?.lit_sources?.length || 0}</span>
+              <span>AI Provider</span>
+              <span>{status?.ai_provider ? String(status.ai_provider).toUpperCase() : '-'}</span>
             </div>
           </div>
         </div>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-4">
+      <section className="grid gap-4 lg:grid-cols-1">
         {cards.map(({ label, value, icon: Icon, to }) => (
           <Link key={to} to={to} className="nav-card">
             <div className="nav-card-icon">
@@ -103,7 +99,7 @@ export default function Dashboard({ status }) {
               '上传论文或批量目录后，统一生成 article_check.ai_review.v1 结构化报告',
               '格式预警、文献预警、内容摘录和 evidence 记录汇入同一份报告',
               '工作流节点、证据链、报告问答与导出视图共用同一数据模型',
-              '正式审改报告与建议报告作为网页、VSCode、CLI 的共同交付物',
+              '正式审改报告与建议报告作为平台 WebDemo 的核心交付物',
             ].map((item) => (
               <div key={item} className="timeline-item">
                 <div className="timeline-dot" />

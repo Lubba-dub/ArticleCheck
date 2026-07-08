@@ -2,30 +2,21 @@ import React, { useState, useEffect } from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import {
   Activity,
-  BookOpen,
-  CheckSquare,
   FileCheck,
   FileText,
   Github,
   Menu,
-  Search,
   ShieldCheck,
   X,
   BarChart3,
 } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import ReviewPage from './pages/ReviewPage';
-import LiteraturePage from './pages/LiteraturePage';
-import SubmissionPage from './pages/SubmissionPage';
-import SurveyPage from './pages/SurveyPage';
 import { api } from './api/client';
 
 const NAV = [
   { path: '/', label: '控制台', icon: BarChart3 },
   { path: '/review', label: '论文审查', icon: FileText },
-  { path: '/literature', label: '文献检索', icon: Search },
-  { path: '/survey', label: '文献综述', icon: BookOpen },
-  { path: '/submission', label: '投稿检查', icon: CheckSquare },
 ];
 
 export default function App() {
@@ -66,7 +57,7 @@ export default function App() {
               {status ? `API ${status.version}` : 'API 离线'}
             </div>
             <div className="mt-2 text-xs text-slate-400">
-              {status?.templates ? `${status.templates} 个模板 · ${status.lit_sources?.length || 0} 个源` : '等待状态同步'}
+              {status?.templates ? `${status.templates} 个模板 · ${status.dify_enabled ? 'Dify 已接入' : 'Dify 待配置'}` : '等待状态同步'}
             </div>
             {status?.ai_provider && (
               <div className="mt-2 text-xs text-slate-500">
@@ -122,11 +113,11 @@ export default function App() {
             <div className="hidden items-center gap-3 lg:flex">
               <span className="capsule capsule-muted">
                 <Activity className="h-3.5 w-3.5" />
-                {status?.deepseek_api ? 'DeepSeek 已接入' : 'DeepSeek 未配置'}
+                {status?.dify_enabled ? 'Dify 已接入' : 'Dify 待配置'}
               </span>
               <span className="capsule capsule-muted">
                 <BarChart3 className="h-3.5 w-3.5" />
-                V4 Runtime
+                Platform Runtime
               </span>
               <a
                 href="https://github.com/Lubba-dub/ArticleCheck"
@@ -144,9 +135,6 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Dashboard status={status} />} />
             <Route path="/review" element={<ReviewPage />} />
-            <Route path="/literature" element={<LiteraturePage />} />
-            <Route path="/survey" element={<SurveyPage />} />
-            <Route path="/submission" element={<SubmissionPage />} />
           </Routes>
         </main>
       </div>
