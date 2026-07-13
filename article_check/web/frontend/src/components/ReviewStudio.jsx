@@ -80,6 +80,16 @@ const DEMO_REPORT = {
       doi_missing_count: 3,
       score: 0.76,
     },
+    report_generation: {
+      risk_matrix: [
+        { severity: 'critical', title: '参考文献完整性', detail: '正文引用与文后参考文献列表未完全闭合。' },
+        { severity: 'major', title: '模板一致性', detail: '封面与图题样式尚未完全贴合学校模板。' },
+      ],
+      publication_readiness: {
+        readiness: '需修订后提交',
+        blocker_count: 1,
+      },
+    },
   },
   findings: [
     {
@@ -145,6 +155,12 @@ const DEMO_REPORT = {
       },
     ],
   },
+  question_router_hints: ['总览结论', '格式问题', '参考文献', '修订建议'],
+  qa_seed_questions: [
+    '请按优先级总结最需要先改的 3 个问题。',
+    '哪些问题会直接影响论文提交？',
+    '请说明参考文献部分最需要补强的地方。',
+  ],
   workflow: {
     graph: {
       ingest: { stage: 'ingest', status: 'completed', critical: true, dependencies: [], worker_binding: 'file_loader' },
@@ -186,15 +202,20 @@ export default function ReviewStudio({
   );
   const review = selectedEntry?.review || DEMO_REPORT;
   const usingTemplate = !selectedEntry;
+  const displayTitle = getDisplayTitle(selectedEntry, review, usingTemplate);
 
   const formatIssues = useMemo(() => extractFormatIssues(review), [review]);
   const referenceIssues = useMemo(() => extractReferenceIssues(review), [review]);
   const contentHighlights = useMemo(() => extractContentHighlights(review), [review]);
   const evidenceRecords = review.evidence_records || [];
   const priorities = review.advice_report?.priorities || [];
+  const reportGeneration = review.sections?.report_generation || {};
   const summaryCards = buildSummaryCards(review, formatIssues, referenceIssues, evidenceRecords);
   const overview = buildOverview(review, formatIssues, referenceIssues, contentHighlights);
   const navigatorItems = buildNavigatorItems(evidenceRecords, formatIssues, referenceIssues);
+  const qaSeedQuestions = useMemo(() => extractSuggestionQuestions(review, reportGeneration), [review, reportGeneration]);
+  const routerHints = useMemo(() => extractRouterHints(review, reportGeneration), [review, reportGeneration]);
+  const riskMatrixItems = useMemo(() => extractRiskMatrixItems(reportGeneration), [reportGeneration]);
 
   return (
     <div className="space-y-8">
@@ -219,10 +240,10 @@ export default function ReviewStudio({
             <div className="space-y-3">
               <div className="report-kicker">审查报告总览</div>
               <h1 className="report-title">
-                {review.meta?.paper_title || '论文审查报告'}
+                {displayTitle}
               </h1>
               <p className="report-subtitle">
-                按“执行摘要 → 风险分层 → 问题定位 → 修订行动”组织，帮助用户快速把握最需要优先修改的内容。
+                按“执行摘要 → 风险分层 → 证据定位 → 修订行动”组织，帮助用户快速把握最需要优先修改的内容，并让作者、导师与审改系统共享同一份正式审查结果。
               </p>
             </div>
 
@@ -312,7 +333,7 @@ export default function ReviewStudio({
                     className={`queue-card ${active ? 'queue-card-active' : ''}`}
                   >
                     <div className="queue-card-top">
-                      <span className="queue-title">{meta.paper_title || '模板示例'}</span>
+                      <span className="queue-title">{getQueueTitle(entry)}</span>
                       <span className={`queue-score ${scoreToneClass(meta.overall_score)}`}>
                         {formatScore(meta.overall_score)}
                       </span>
@@ -424,14 +445,14 @@ export default function ReviewStudio({
 
           <SurfaceCard
             title="原文片段联动预览"
-            subtitle="点击任一证据后，在这里查看论文原文中的对应位置"
+            subtitle="按 Evidence 定位源论文片段，形成报告与原文双栏联动"
             icon={ScanLine}
           >
             <SourceSnippetPanel snippetLoading={snippetLoading} sourceSnippet={sourceSnippet} />
           </SurfaceCard>
         </div>
 
-        <div className="grid gap-6 2xl:grid-cols-[1fr,1fr]">
+        <div className="grid gap-6 2xl:grid-cols-[0.95fr,1.05fr]">
           <SurfaceCard
             title="审改行动清单"
             subtitle="按照风险优先级输出明确修订动作"
@@ -480,42 +501,94 @@ export default function ReviewStudio({
               ))}
             </div>
           </SurfaceCard>
-        </div>
 
-        <SurfaceCard
-          title="报告问答"
-          subtitle="围绕当前结构化报告继续追问最关键的修改建议"
-          icon={Bot}
-        >
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-slate-200 bg-white/70 p-4">
-              <div className="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">问题输入</div>
-              <textarea
-                value={question}
-                onChange={(event) => onQuestionChange?.(event.target.value)}
-                placeholder="例如：请按优先级总结最需要先改的 3 个问题，并说明定位依据。"
-                className="min-h-28 w-full resize-y border-0 bg-transparent p-0 text-sm leading-7 text-slate-700 outline-none placeholder:text-slate-400"
-              />
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={onAskQuestion}
-                disabled={asking || usingTemplate}
-                className="btn-primary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <Sparkles className="h-4 w-4" />
-                {asking ? '思考中...' : '生成报告问答'}
-              </button>
-              {usingTemplate && (
-                <span className="capsule capsule-muted">模板模式下不发起真实问答</span>
+          <SurfaceCard
+            title="报告增强字段"
+            subtitle="直接展示 Dify 报告生成阶段产出的风险矩阵、路由提示与发布准备度"
+            icon={Sparkles}
+          >
+            <div className="space-y-4">
+              {riskMatrixItems.length === 0 && routerHints.length === 0 && (
+                <EmptyState text="当前报告尚未返回可展示的增强字段。" />
+              )}
+              {riskMatrixItems.length > 0 && (
+                <div className="space-y-3">
+                  {riskMatrixItems.map((item, index) => (
+                    <div key={`${item.title}-${index}`} className="content-item">
+                      <div className="content-item-head">
+                        <span className={`severity-pill ${severityPillClass(item.severity)}`}>{item.severity || 'info'}</span>
+                        <span className="mini-meta">{item.title}</span>
+                      </div>
+                      <p className="content-item-text">{item.detail}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {routerHints.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Question Router Hints</div>
+                  <div className="flex flex-wrap gap-2">
+                    {routerHints.map((hint) => (
+                      <span key={hint} className="capsule capsule-muted">{hint}</span>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
-            <div className="answer-panel">
-              {answer || '这里将显示围绕当前论文审查结果生成的解释、优先级建议与答辩式说明。'}
+          </SurfaceCard>
+
+          <SurfaceCard
+            title="报告问答"
+            subtitle="围绕当前结构化报告继续追问最关键的修改建议"
+            icon={Bot}
+          >
+            <div className="space-y-4">
+              {qaSeedQuestions.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Suggested Questions</div>
+                  <div className="flex flex-wrap gap-2">
+                    {qaSeedQuestions.map((item) => (
+                      <button
+                        key={item}
+                        type="button"
+                        className="capsule capsule-muted text-left"
+                        onClick={() => onQuestionChange?.(item)}
+                      >
+                        {item}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="rounded-2xl border border-slate-200 bg-white/70 p-4">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Prompt</div>
+                <textarea
+                  value={question}
+                  onChange={(event) => onQuestionChange?.(event.target.value)}
+                  placeholder="例如：请按优先级总结最需要先改的 3 个问题，并说明定位依据。"
+                  className="min-h-28 w-full resize-y border-0 bg-transparent p-0 text-sm leading-7 text-slate-700 outline-none placeholder:text-slate-400"
+                />
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={onAskQuestion}
+                  disabled={asking || usingTemplate}
+                  className="btn-primary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  {asking ? '思考中...' : '生成问答结论'}
+                </button>
+                {usingTemplate && (
+                  <span className="capsule capsule-muted">模板模式下不发起真实问答</span>
+                )}
+              </div>
+              <div className="answer-panel answer-markdown">
+                <MarkdownAnswer content={answer} />
+              </div>
             </div>
-          </div>
-        </SurfaceCard>
+          </SurfaceCard>
+        </div>
       </section>
     </div>
   );
@@ -663,11 +736,44 @@ function SourceSnippetPanel({ snippetLoading, sourceSnippet }) {
             className={`snippet-line ${focusLine && line.line_number === focusLine ? 'snippet-line-focused' : ''}`}
           >
             <div className="snippet-line-number">{line.line_number || '·'}</div>
-            <pre className="snippet-line-text">{line.text || ''}</pre>
+            <div className="snippet-line-text">{decodeSnippetText(line.text)}</div>
           </div>
         ))}
       </div>
     </div>
+  );
+}
+
+function MarkdownAnswer({ content }) {
+  if (!content) {
+    return <p>这里将显示围绕当前论文审查结果生成的解释、优先级建议与答辩式说明。</p>;
+  }
+
+  const blocks = parseMarkdownBlocks(content);
+  return (
+    <>
+      {blocks.map((block, index) => {
+        if (block.type === 'ol') {
+          return (
+            <ol key={`block-${index}`}>
+              {block.items.map((item, itemIndex) => (
+                <li key={`item-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
+              ))}
+            </ol>
+          );
+        }
+        if (block.type === 'ul') {
+          return (
+            <ul key={`block-${index}`}>
+              {block.items.map((item, itemIndex) => (
+                <li key={`item-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
+              ))}
+            </ul>
+          );
+        }
+        return <p key={`block-${index}`}>{renderInlineMarkdown(block.text)}</p>;
+      })}
+    </>
   );
 }
 
@@ -805,6 +911,166 @@ function extractContentHighlights(review) {
   });
 
   return issues.slice(0, 6);
+}
+
+function extractSuggestionQuestions(review, reportGeneration) {
+  return extractTextList(review.qa_seed_questions || reportGeneration.qa_seed_questions, 6);
+}
+
+function extractRouterHints(review, reportGeneration) {
+  return extractTextList(
+    review.question_router_hints || reportGeneration.question_router_hints || reportGeneration.routing_hints,
+    6
+  );
+}
+
+function extractRiskMatrixItems(reportGeneration) {
+  const riskMatrix = reportGeneration?.risk_matrix;
+  if (Array.isArray(riskMatrix) && riskMatrix.length) {
+    return riskMatrix.slice(0, 6).map((item, index) => ({
+      severity: item?.severity || 'info',
+      title: item?.title || item?.label || `风险项 ${index + 1}`,
+      detail: item?.detail || item?.description || item?.summary || '未提供详情',
+    }));
+  }
+
+  const readiness = reportGeneration?.publication_readiness;
+  if (readiness && typeof readiness === 'object') {
+    return Object.entries(readiness).slice(0, 4).map(([key, value]) => ({
+      severity: key.includes('blocker') ? 'major' : 'info',
+      title: key,
+      detail: typeof value === 'string' ? value : JSON.stringify(value),
+    }));
+  }
+
+  return [];
+}
+
+function extractTextList(value, limit = 6) {
+  const items = [];
+
+  const pushText = (entry) => {
+    if (!entry) return;
+    if (typeof entry === 'string') {
+      items.push(entry.trim());
+      return;
+    }
+    if (Array.isArray(entry)) {
+      entry.forEach(pushText);
+      return;
+    }
+    if (typeof entry === 'object') {
+      const candidate = entry.question || entry.title || entry.label || entry.description || entry.summary || entry.value;
+      if (candidate) {
+        items.push(String(candidate).trim());
+      }
+    }
+  };
+
+  pushText(value);
+  return [...new Set(items.filter(Boolean))].slice(0, limit);
+}
+
+function getDisplayTitle(selectedEntry, review, usingTemplate) {
+  if (usingTemplate) return review.meta?.paper_title || '模板示例';
+  return selectedEntry?.displayName || selectedEntry?.file?.name || extractFileName(review?.meta?.source_paper_path) || review.meta?.paper_title || '论文审查报告';
+}
+
+function getQueueTitle(entry) {
+  return entry?.displayName || entry?.file?.name || extractFileName(entry?.review?.meta?.source_paper_path) || entry?.review?.meta?.paper_title || '模板示例';
+}
+
+function extractFileName(path) {
+  if (!path) return '';
+  const segments = String(path).split(/[/\\]/).filter(Boolean);
+  return segments[segments.length - 1] || '';
+}
+
+function parseMarkdownBlocks(content) {
+  const lines = String(content || '').replace(/\r\n/g, '\n').split('\n');
+  const blocks = [];
+  let paragraph = [];
+  let listType = null;
+  let listItems = [];
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    blocks.push({ type: 'p', text: paragraph.join(' ').trim() });
+    paragraph = [];
+  };
+
+  const flushList = () => {
+    if (!listItems.length || !listType) return;
+    blocks.push({ type: listType, items: [...listItems] });
+    listType = null;
+    listItems = [];
+  };
+
+  lines.forEach((rawLine) => {
+    const line = rawLine.trim();
+    if (!line) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+
+    const orderedMatch = line.match(/^\d+\.\s+(.*)$/);
+    const bulletMatch = line.match(/^[-*]\s+(.*)$/);
+
+    if (orderedMatch) {
+      flushParagraph();
+      if (listType && listType !== 'ol') flushList();
+      listType = 'ol';
+      listItems.push(orderedMatch[1]);
+      return;
+    }
+
+    if (bulletMatch) {
+      flushParagraph();
+      if (listType && listType !== 'ul') flushList();
+      listType = 'ul';
+      listItems.push(bulletMatch[1]);
+      return;
+    }
+
+    if (listType && listItems.length) {
+      listItems[listItems.length - 1] = `${listItems[listItems.length - 1]} ${line}`.trim();
+      return;
+    }
+
+    paragraph.push(line);
+  });
+
+  flushParagraph();
+  flushList();
+  return blocks;
+}
+
+function renderInlineMarkdown(content) {
+  const tokens = String(content || '').split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean);
+  return tokens.map((token, index) => {
+    if (token.startsWith('**') && token.endsWith('**')) {
+      return <strong key={`token-${index}`}>{token.slice(2, -2)}</strong>;
+    }
+    if (token.startsWith('`') && token.endsWith('`')) {
+      return <code key={`token-${index}`}>{token.slice(1, -1)}</code>;
+    }
+    return <React.Fragment key={`token-${index}`}>{token}</React.Fragment>;
+  });
+}
+
+function decodeSnippetText(value) {
+  let text = String(value || '');
+  text = text.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+  text = text.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"');
+
+  if (typeof document !== 'undefined' && /&(?:[a-z]+|#\d+|#x[\da-f]+);/i.test(text)) {
+    const textarea = document.createElement('textarea');
+    textarea.innerHTML = text;
+    text = textarea.value;
+  }
+
+  return text;
 }
 
 function findEvidenceId(review, description) {

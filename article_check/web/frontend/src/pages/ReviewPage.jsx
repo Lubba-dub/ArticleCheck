@@ -17,6 +17,7 @@ export default function ReviewPage() {
   const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [deepReview, setDeepReview] = useState(false);
+  const [reviewTrack, setReviewTrack] = useState('graduate');
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef();
   const focusTimerRef = useRef(null);
@@ -54,12 +55,15 @@ export default function ReviewPage() {
     try {
       const allResults = [];
       for (const file of queue) {
-        const response = await api.review(file.path, null, deepReview);
+        const response = deepReview
+          ? await api.deepReview(file.path, null, reviewTrack)
+          : await api.review(file.path, null, false, reviewTrack);
         const review = unwrapApiPayload(response);
         allResults.push({
           id: buildEntryId(file.path || file.name, review?.meta?.task_id),
           file,
           review,
+          displayName: extractDisplayName(file, review),
         });
       }
       setResults(allResults);
@@ -77,7 +81,7 @@ export default function ReviewPage() {
       alert(`审查失败: ${error.message}`);
     }
     setLoading(false);
-  }, [files, deepReview]);
+  }, [files, deepReview, reviewTrack]);
 
   const runBatchStream = useCallback(async () => {
     const queue = dedupeFiles(files);
@@ -89,7 +93,10 @@ export default function ReviewPage() {
     setDetailTarget(null);
     setAnswer('');
     try {
-      const response = await api.batchStream(queue.map((file) => file.path));
+      const response = await api.batchStream(
+        queue.map((file) => file.path),
+        { with_deep_review: deepReview, review_track: reviewTrack }
+      );
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -109,8 +116,12 @@ export default function ReviewPage() {
           const review = data.review_payload || data;
           const nextEntry = {
             id: buildEntryId(data.paper_title, review?.meta?.task_id),
-            file: { name: data.paper_title, path: review?.meta?.source_paper_path || '' },
+            file: {
+              name: extractDisplayName(null, review, data.paper_title),
+              path: review?.meta?.source_paper_path || '',
+            },
             review,
+            displayName: extractDisplayName(null, review, data.paper_title),
           };
           setResults((prev) => {
             const next = dedupeResults([...prev, nextEntry]);
@@ -125,7 +136,7 @@ export default function ReviewPage() {
       alert(`流式审查失败: ${error.message}`);
     }
     setStreaming(false);
-  }, [files]);
+  }, [files, deepReview, reviewTrack]);
 
   useEffect(() => {
     if (!results.length) {
@@ -253,6 +264,7 @@ export default function ReviewPage() {
             <div className="flex flex-wrap gap-3 text-sm text-slate-500">
               <span className="capsule capsule-muted">{queuedFiles.length} 篇待审论文</span>
               <span className="capsule capsule-muted">{deepReview ? '已启用深度审查' : '仅执行基础审查'}</span>
+              <span className="capsule capsule-muted">{reviewTrack === 'undergraduate' ? '本科论文审查' : '硕士/研究生论文审查'}</span>
             </div>
           </div>
 
@@ -262,6 +274,23 @@ export default function ReviewPage() {
                 <div className="upload-panel-title">审查控制台</div>
                 <div className="upload-panel-subtitle">支持单篇与批量流式审查，审查结果会自动汇入下方统一报告视图</div>
               </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-sm font-medium text-slate-600">审查分类</span>
+              <button
+                type="button"
+                onClick={() => setReviewTrack('undergraduate')}
+                className={reviewTrack === 'undergraduate' ? 'btn-primary' : 'btn-outline'}
+              >
+                本科论文审查
+              </button>
+              <button
+                type="button"
+                onClick={() => setReviewTrack('graduate')}
+                className={reviewTrack === 'graduate' ? 'btn-primary' : 'btn-outline'}
+              >
+                硕士论文审查
+              </button>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading} className="btn-primary inline-flex items-center gap-2">
@@ -368,4 +397,18 @@ function dedupeResults(items) {
     seen.add(key);
     return true;
   });
+}
+
+function extractDisplayName(file, review, fallback = '论文审查报告') {
+  if (file?.name) return file.name;
+  if (review?.meta?.source_file_name) return review.meta.source_file_name;
+
+  const sourcePath = review?.meta?.source_paper_path;
+  if (sourcePath) {
+    const normalized = String(sourcePath).split(/[/\\]/).filter(Boolean);
+    if (normalized.length) return normalized[normalized.length - 1];
+  }
+
+  if (review?.meta?.paper_title) return review.meta.paper_title;
+  return fallback;
 }

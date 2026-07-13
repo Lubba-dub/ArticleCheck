@@ -44,6 +44,9 @@ COPY --from=frontend-builder /build/frontend/dist /app/article_check/web/fronten
 
 # 复制源码
 COPY article_check/ /app/article_check/
+COPY dify_api.example.md /app/dify_api.example.md
+COPY dify_dsl/ /app/dify_dsl/
+COPY 北师大论文格式要求/ /app/北师大论文格式要求/
 
 # 运行时目录
 RUN mkdir -p /app/reports /app/uploads /app/.worktrees

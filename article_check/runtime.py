@@ -9,6 +9,7 @@ Phase A 目标：
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from html import escape
 from pathlib import Path
@@ -41,6 +42,7 @@ class ReviewIntent:
     paper_paths: List[str] = field(default_factory=list)
     template_name: Optional[str] = None
     institution: Optional[str] = None
+    review_track: Optional[str] = None
     goals: List[str] = field(default_factory=list)
 
 
@@ -86,6 +88,29 @@ class RuntimeBundle:
     workflow: V4ReviewWorkflow
 
 
+def _format_location_text(location: Any) -> str:
+    if isinstance(location, dict):
+        text = ", ".join(f"{k}: {v}" for k, v in location.items() if v not in (None, "", [], {}))
+        return text or "未提供定位信息"
+    if isinstance(location, list):
+        text = " / ".join(str(item) for item in location if item not in (None, "", [], {}))
+        return text or "未提供定位信息"
+    if location in (None, "", [], {}):
+        return "未提供定位信息"
+    return str(location)
+
+
+def _safe_report_stem(value: str, fallback: str = "report") -> str:
+    """将展示标题转换为安全的报告目录/文件名。"""
+
+    raw = str(value or "").strip()
+    candidate = Path(raw).name or raw
+    candidate = candidate.replace("\r", " ").replace("\n", " ")
+    candidate = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", candidate)
+    candidate = re.sub(r"\s+", " ", candidate).strip(" ._")
+    return candidate[:120] or fallback
+
+
 def build_harness() -> Harness:
     """构建带默认工具绑定的 Harness。"""
 
@@ -122,6 +147,7 @@ def create_paper_task(
     *,
     depth: str = "auto",
     template_name: Optional[str] = None,
+    review_track: Optional[str] = None,
 ) -> PaperTask:
     """统一构造 PaperTask。"""
 
@@ -133,6 +159,7 @@ def create_paper_task(
         file_type=detect_file_type(path),
         journal_template=template_name or "",
         review_depth=depth,
+        review_track=review_track or "auto",
     )
 
 
@@ -144,6 +171,7 @@ def build_runtime(
     api_key: Optional[str] = None,
     paper_paths: Optional[List[str]] = None,
     template_name: Optional[str] = None,
+    review_track: Optional[str] = None,
 ) -> RuntimeBundle:
     """统一构造运行时。"""
 
@@ -174,6 +202,7 @@ def build_runtime(
         mode=mode,
         paper_paths=paper_paths or [],
         template_name=template_name,
+        review_track=review_track,
         goals=[
             "检查格式规范",
             "验证参考文献有效性",
@@ -419,6 +448,8 @@ def build_review_payload(result: PipelineResult, *, plan_id: str = "cli-plan") -
             "overall_score": result.overall_score,
             "duration": result.duration,
             "source_paper_path": result.source_paper_path,
+            "source_file_name": result.source_file_name or (Path(result.source_paper_path).name if result.source_paper_path else ""),
+            "review_track": result.review_track or "auto",
         },
         "summary": {
             "finding_count": len(findings),
@@ -442,7 +473,10 @@ def build_review_payload(result: PipelineResult, *, plan_id: str = "cli-plan") -
         "findings": findings,
         "evidence_records": evidence,
         "advice_report": advice_report,
-        "formal_report": formal_report,
+        "formal_report": {
+            **formal_report,
+            "source_paper_path": result.source_paper_path,
+        },
         "workflow": {
             "checkpoint_path": workflow_artifacts.get("checkpoint_path"),
             "events_path": workflow_artifacts.get("events_path"),
@@ -543,9 +577,10 @@ def generate_advice_report(findings: List[Dict[str, Any]], paper_title: str) -> 
             lines.append(f"- {action}")
         lines.append("")
 
-    report_dir = Path.cwd() / "reports" / paper_title
+    report_stem = _safe_report_stem(paper_title)
+    report_dir = Path.cwd() / "reports" / report_stem
     report_dir.mkdir(parents=True, exist_ok=True)
-    report_path = report_dir / f"{paper_title}_advice_report.md"
+    report_path = report_dir / f"{report_stem}_advice_report.md"
     report_path.write_text("\n".join(lines), encoding="utf-8")
     return {
         "priorities": priorities,
@@ -563,7 +598,8 @@ def generate_formal_review_report(
 ) -> Dict[str, Any]:
     """生成更正式的审改报告模板与导出格式。"""
 
-    report_dir = Path.cwd() / "reports" / paper_title
+    report_stem = _safe_report_stem(paper_title)
+    report_dir = Path.cwd() / "reports" / report_stem
     report_dir.mkdir(parents=True, exist_ok=True)
 
     grouped: Dict[str, List[Dict[str, Any]]] = {}
@@ -621,7 +657,7 @@ def generate_formal_review_report(
         "",
     ])
 
-    markdown_path = report_dir / f"{paper_title}_formal_review_report.md"
+    markdown_path = report_dir / f"{report_stem}_formal_review_report.md"
     markdown_path.write_text("\n".join(md_lines), encoding="utf-8")
 
     safe = lambda value: escape(str(value if value is not None else ""))
@@ -661,8 +697,7 @@ def generate_formal_review_report(
     for category, items in grouped.items():
         rows = []
         for item in items[:10]:
-            location = item.get("location") or {}
-            location_text = ", ".join(f"{k}: {v}" for k, v in location.items()) or "未提供定位信息"
+            location_text = _format_location_text(item.get("location"))
             rows.append(
                 f"""
                 <tr>
@@ -695,10 +730,17 @@ def generate_formal_review_report(
     evidence_cards = []
     for record in evidence_records[:18]:
         location = record.get("location") or {}
-        location_text = " · ".join([f"第 {location.get('page')} 页" if location.get("page") else "",
-                                      f"行 {location.get('line')}" if location.get("line") else "",
-                                      f"章节 {location.get('section')}" if location.get("section") else ""]).strip(" ·")
-        location_text = location_text or "未提供定位信息"
+        if isinstance(location, dict):
+            location_text = " · ".join(
+                [
+                    f"第 {location.get('page')} 页" if location.get("page") else "",
+                    f"行 {location.get('line')}" if location.get("line") else "",
+                    f"章节 {location.get('section')}" if location.get("section") else "",
+                ]
+            ).strip(" ·")
+            location_text = location_text or "未提供定位信息"
+        else:
+            location_text = _format_location_text(location)
         evidence_cards.append(
             f"""
             <article class="evidence-card">
@@ -1133,10 +1175,10 @@ def generate_formal_review_report(
   </div>
 </body>
 </html>"""
-    html_path = report_dir / f"{paper_title}_formal_review_report.html"
+    html_path = report_dir / f"{report_stem}_formal_review_report.html"
     html_path.write_text(html_content, encoding="utf-8")
 
-    json_path = report_dir / f"{paper_title}_formal_review_report.json"
+    json_path = report_dir / f"{report_stem}_formal_review_report.json"
     json_path.write_text(
         json.dumps(
             {

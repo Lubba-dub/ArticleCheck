@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -396,8 +398,6 @@ class ReferenceValidator:
     @staticmethod
     def verify_doi(doi: str) -> Dict[str, Any]:
         """验证 DOI（使用 CrossRef API）"""
-        import urllib.request
-        import urllib.error
         try:
             url = f"https://api.crossref.org/works/{doi}"
             req = urllib.request.Request(url, headers={"User-Agent": "ArticleCheck/1.0"})
@@ -414,6 +414,137 @@ class ReferenceValidator:
                 }
         except Exception as e:
             return {"valid": False, "error": str(e)}
+
+    @staticmethod
+    def check_reference_exists(
+        title: str,
+        authors: Optional[List[str]] = None,
+        year: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """通过 Crossref / OpenAlex 检查参考文献题名是否真实存在。"""
+        normalized_title = ReferenceValidator._normalize_title(title)
+        if not normalized_title:
+            return {"exists": False, "message": "题名为空，无法检索"}
+
+        crossref_result = ReferenceValidator._search_crossref(title, authors=authors, year=year)
+        if crossref_result.get("exists"):
+            return crossref_result
+
+        openalex_result = ReferenceValidator._search_openalex(title, authors=authors, year=year)
+        if openalex_result.get("exists"):
+            return openalex_result
+
+        return {
+            "exists": False,
+            "query_title": title,
+            "message": openalex_result.get("message") or crossref_result.get("message") or "未在 Crossref/OpenAlex 中检索到高置信候选条目",
+            "sources": [crossref_result, openalex_result],
+        }
+
+    @staticmethod
+    def _search_crossref(title: str, authors: Optional[List[str]] = None, year: Optional[int] = None) -> Dict[str, Any]:
+        try:
+            params = urllib.parse.urlencode({"query.bibliographic": title, "rows": 3})
+            url = f"https://api.crossref.org/works?{params}"
+            req = urllib.request.Request(url, headers={"User-Agent": "ArticleCheck/1.0"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+            items = (data.get("message") or {}).get("items") or []
+            return ReferenceValidator._pick_best_candidate("crossref", title, items, authors=authors, year=year)
+        except Exception as exc:
+            return {"exists": False, "source": "crossref", "message": str(exc)}
+
+    @staticmethod
+    def _search_openalex(title: str, authors: Optional[List[str]] = None, year: Optional[int] = None) -> Dict[str, Any]:
+        try:
+            params = urllib.parse.urlencode({"search": title, "per-page": 3})
+            url = f"https://api.openalex.org/works?{params}"
+            req = urllib.request.Request(url, headers={"User-Agent": "ArticleCheck/1.0"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+            items = data.get("results") or []
+            return ReferenceValidator._pick_best_candidate("openalex", title, items, authors=authors, year=year)
+        except Exception as exc:
+            return {"exists": False, "source": "openalex", "message": str(exc)}
+
+    @staticmethod
+    def _pick_best_candidate(
+        source: str,
+        title: str,
+        items: List[Dict[str, Any]],
+        *,
+        authors: Optional[List[str]] = None,
+        year: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        normalized_query = ReferenceValidator._normalize_title(title)
+        best: Optional[Dict[str, Any]] = None
+        best_score = 0.0
+
+        for item in items:
+            candidate_title = ""
+            candidate_authors: List[str] = []
+            candidate_year = None
+            candidate_doi = None
+
+            if source == "crossref":
+                candidate_title = ((item.get("title") or [""])[:1] or [""])[0]
+                candidate_authors = [
+                    " ".join(part for part in [author.get("given", ""), author.get("family", "")] if part).strip()
+                    for author in (item.get("author") or [])
+                ]
+                candidate_year = (item.get("published-print") or item.get("published-online") or item.get("created") or {}).get("date-parts", [[None]])[0][0]
+                candidate_doi = item.get("DOI")
+            else:
+                candidate_title = item.get("display_name") or ""
+                candidate_authors = [
+                    (author.get("author") or {}).get("display_name", "")
+                    for author in (item.get("authorships") or [])
+                ]
+                candidate_year = item.get("publication_year")
+                candidate_doi = item.get("doi")
+
+            title_score = ReferenceValidator._title_similarity(normalized_query, ReferenceValidator._normalize_title(candidate_title))
+            author_score = ReferenceValidator._author_overlap(authors or [], candidate_authors)
+            year_score = 1.0 if not year or not candidate_year or int(year) == int(candidate_year) else 0.0
+            score = title_score * 0.75 + author_score * 0.15 + year_score * 0.10
+
+            if score > best_score:
+                best_score = score
+                best = {
+                    "exists": score >= 0.72,
+                    "source": source,
+                    "query_title": title,
+                    "matched_title": candidate_title,
+                    "matched_authors": candidate_authors[:6],
+                    "matched_year": candidate_year,
+                    "matched_doi": candidate_doi,
+                    "title_similarity": round(title_score, 3),
+                    "score": round(score, 3),
+                }
+
+        return best or {"exists": False, "source": source, "query_title": title, "message": "未找到候选条目"}
+
+    @staticmethod
+    def _normalize_title(title: str) -> str:
+        normalized = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", (title or "").lower())
+        return normalized.strip()
+
+    @staticmethod
+    def _title_similarity(a: str, b: str) -> float:
+        if not a or not b:
+            return 0.0
+        if a == b:
+            return 1.0
+        shared = len(set(a) & set(b))
+        return shared / max(len(set(a) | set(b)), 1)
+
+    @staticmethod
+    def _author_overlap(left: List[str], right: List[str]) -> float:
+        left_norm = {ReferenceValidator._normalize_title(item) for item in left if item}
+        right_norm = {ReferenceValidator._normalize_title(item) for item in right if item}
+        if not left_norm or not right_norm:
+            return 0.0
+        return len(left_norm & right_norm) / max(len(left_norm), 1)
 
 
 # ═══════════════════════════════════════════════════════
@@ -513,6 +644,10 @@ class ReferenceEngine:
             doi_check = self.validator.verify_doi(ref.doi)
             result["doi_verified"] = doi_check.get("valid", False)
             result["doi_details"] = doi_check
+        if ref.title:
+            exists_check = self.validator.check_reference_exists(ref.title, authors=ref.authors, year=ref.year)
+            result["exists"] = exists_check.get("exists", False)
+            result["existence_details"] = exists_check
         return result
 
     def get_report(self) -> Dict[str, Any]:

@@ -80,6 +80,8 @@ class Orchestrator:
             paper_title=task.title or task.paper_path.stem,
             task_id=task.task_id,
             source_paper_path=str(task.paper_path),
+            source_file_name=task.paper_path.name,
+            review_track=task.review_track,
         )
 
         pendings = []
@@ -188,6 +190,8 @@ class Orchestrator:
                     paper_title=tasks[i].title,
                     task_id=tasks[i].task_id,
                     source_paper_path=str(tasks[i].paper_path),
+                    source_file_name=tasks[i].paper_path.name,
+                    review_track=tasks[i].review_track,
                     errors=[str(r)],
                 ))
             else:
@@ -216,7 +220,10 @@ class Orchestrator:
         elif file_type == "docx":
             tool = self.harness.get_tool("check_docx_format")
             if tool and tool.fn:
-                issues = tool.fn(file_path=str(ctx.paper_copy))
+                issues = tool.fn(
+                    file_path=str(ctx.paper_copy),
+                    review_track=task.review_track,
+                )
                 if issues:
                     results["issues"].extend(issues)
 
@@ -226,6 +233,7 @@ class Orchestrator:
             struct = tool.fn(
                 file_path=str(ctx.paper_copy),
                 file_type=file_type,
+                review_track=task.review_track,
             )
             if struct:
                 results["structure"] = struct

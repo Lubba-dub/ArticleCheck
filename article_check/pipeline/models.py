@@ -26,6 +26,7 @@ class PaperTask:
     file_type: str = ""
     journal_template: str = ""
     review_depth: str = "auto"
+    review_track: str = "auto"
 
 
 @dataclass
@@ -34,6 +35,8 @@ class PipelineResult:
     paper_title: str
     task_id: str
     source_paper_path: Optional[str] = None
+    source_file_name: Optional[str] = None
+    review_track: Optional[str] = None
     format_check: Optional[Any] = None
     content_review: Optional[Any] = None
     reference_check: Optional[Any] = None

@@ -38,6 +38,12 @@ def cross_check_references(
 ) -> Dict[str, Any]:
     """交叉验证参考文献一致性"""
     result = _engine.validate(paper_path)
+    refs = _engine.extract_from_paper(paper_path)
+    quality_checks = [_engine.check_ref_quality(ref) for ref in refs[: min(len(refs), 5)]]
+    suspicious_refs = [
+        item for item in quality_checks
+        if item.get("exists") is False or item.get("doi_verified") is False
+    ]
     return {
         "total_refs": result.total_refs,
         "total_citations": result.total_citations,
@@ -46,6 +52,8 @@ def cross_check_references(
         "unused_refs": result.unused_refs[:10],
         "doi_missing": len(result.doi_missing),
         "score": result.score,
+        "quality_checks": quality_checks,
+        "suspicious_references": suspicious_refs,
     }
 
 

@@ -32,6 +32,12 @@ from article_check.runtime import (
     create_paper_task,
     execute_review_task,
 )
+from article_check.dify_review import (
+    dify_workflows_available,
+    get_dify_registry_status,
+    run_dify_report_qa,
+    run_dify_review_chain,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +48,17 @@ class ReviewRequest(BaseModel):
     template: Optional[str] = None
     depth: str = "auto"
     with_deep_review: bool = False
+    review_track: str = "auto"
+    institution: Optional[str] = None
+    review_focus: Optional[str] = None
+    report_focus: Optional[str] = None
+
+
+class BatchReviewRequest(BaseModel):
+    paths: List[str]
+    with_deep_review: bool = True
+    review_track: str = "auto"
+    template: Optional[str] = None
 
 
 class ReportDialogueRequest(BaseModel):
@@ -491,6 +508,52 @@ def _read_text_excerpt(source_path: Path, location: Dict[str, Any], evidence: Di
     }
 
 
+def _annotate_review_payload(
+    payload: Dict[str, Any],
+    *,
+    backend: str,
+    warning: Optional[str] = None,
+) -> Dict[str, Any]:
+    meta = payload.setdefault("meta", {})
+    meta["review_backend"] = backend
+    if warning:
+        warnings = meta.setdefault("warnings", [])
+        if warning not in warnings:
+            warnings.append(warning)
+        errors = payload.setdefault("errors", [])
+        if warning not in errors:
+            errors.append(warning)
+    return payload
+
+
+async def _run_local_review_payload(
+    path: Path,
+    req: ReviewRequest,
+    *,
+    enable_deep_review: bool,
+    warning: Optional[str] = None,
+) -> Dict[str, Any]:
+    runtime = build_runtime(
+        mode="web",
+        enable_deep_review=enable_deep_review,
+        paper_paths=[str(path)],
+        template_name=req.template,
+        review_track=req.review_track,
+    )
+    task = create_paper_task(
+        path,
+        depth="deep" if enable_deep_review else req.depth,
+        template_name=req.template,
+        review_track=req.review_track,
+    )
+    result = await execute_review_task(runtime, task, enable_deep_review=enable_deep_review)
+    payload = build_review_payload(result, plan_id=runtime.plan.plan_id)
+    payload["sections"]["structure"] = (
+        result.format_check.get("structure", {}) if isinstance(result.format_check, dict) else {}
+    )
+    return _annotate_review_payload(payload, backend="local_runtime", warning=warning)
+
+
 # ─── System ─────────────────────────────────────────────
 
 @app.get("/api/status")
@@ -499,10 +562,13 @@ async def get_status():
     from article_check.config.settings import config
     from article_check.rules.registry import template_registry
 
+    registry_status = get_dify_registry_status()
     return api_success({
         "version": "0.3.0",
         "ai_provider": config.ai.provider,
-        "dify_enabled": bool(config.dify.api_key),
+        "dify_enabled": bool(registry_status.get("available")),
+        "dify_registry": registry_status,
+        "review_backend": "dify_workflow_chain" if registry_status.get("available") else "local_runtime",
         "templates": template_registry.count,
         "templates_list": [t.name for t in template_registry.list_all()],
     })
@@ -535,18 +601,33 @@ async def review_paper(req: ReviewRequest):
     if not path.exists():
         raise HTTPException(404, f"文件不存在: {req.paper_path}")
 
-    runtime = build_runtime(
-        mode="web",
-        enable_deep_review=False,
-        paper_paths=[str(path)],
-        template_name=req.template,
-    )
-    task = create_paper_task(path, depth=req.depth, template_name=req.template)
-    result = await execute_review_task(runtime, task, enable_deep_review=False)
+    if dify_workflows_available():
+        try:
+            payload = await asyncio.to_thread(
+                run_dify_review_chain,
+                str(path),
+                template_name=req.template,
+                detailed_mode=bool(req.with_deep_review or req.depth == "deep"),
+                review_track=req.review_track,
+                review_focus=req.review_focus,
+                report_focus=req.report_focus,
+            )
+            return api_success(_annotate_review_payload(payload, backend="dify_workflow_chain"))
+        except Exception as exc:
+            logger.exception("Dify 审查链执行失败")
+            warning = f"Dify 审查链执行失败，已自动回退本地审查: {exc}"
+            payload = await _run_local_review_payload(
+                path,
+                req,
+                enable_deep_review=bool(req.with_deep_review or req.depth == "deep"),
+                warning=warning,
+            )
+            return api_success(payload)
 
-    payload = build_review_payload(result, plan_id=runtime.plan.plan_id)
-    payload["sections"]["structure"] = (
-        result.format_check.get("structure", {}) if isinstance(result.format_check, dict) else {}
+    payload = await _run_local_review_payload(
+        path,
+        req,
+        enable_deep_review=bool(req.with_deep_review or req.depth == "deep"),
     )
     return api_success(payload)
 
@@ -558,20 +639,42 @@ async def deep_review(req: ReviewRequest):
     if not path.exists():
         raise HTTPException(404, "文件不存在")
 
-    runtime = build_runtime(
-        mode="web",
-        enable_deep_review=req.with_deep_review,
-        paper_paths=[str(path)],
-        template_name=req.template,
-    )
-    task = create_paper_task(path, depth=req.depth, template_name=req.template)
-    result = await execute_review_task(runtime, task, enable_deep_review=req.with_deep_review)
-    return api_success(build_review_payload(result, plan_id=runtime.plan.plan_id))
+    if dify_workflows_available():
+        try:
+            payload = await asyncio.to_thread(
+                run_dify_review_chain,
+                str(path),
+                template_name=req.template,
+                detailed_mode=True,
+                review_track=req.review_track,
+                review_focus=req.review_focus,
+                report_focus=req.report_focus,
+            )
+            return api_success(_annotate_review_payload(payload, backend="dify_workflow_chain"))
+        except Exception as exc:
+            logger.exception("Dify 深度审查链执行失败")
+            warning = f"Dify 深度审查链执行失败，已自动回退本地审查: {exc}"
+            payload = await _run_local_review_payload(
+                path,
+                req,
+                enable_deep_review=bool(req.with_deep_review),
+                warning=warning,
+            )
+            return api_success(payload)
+
+    payload = await _run_local_review_payload(path, req, enable_deep_review=bool(req.with_deep_review))
+    return api_success(payload)
 
 
 @app.post("/api/report/dialogue")
 async def report_dialogue(req: ReportDialogueRequest):
     """围绕结构化报告进行问答。"""
+    if dify_workflows_available():
+        try:
+            answer = await asyncio.to_thread(run_dify_report_qa, req.report_payload, req.question)
+            return api_success({"answer": answer})
+        except Exception:
+            logger.exception("Dify 报告问答失败，将回退本地问答。")
     answer = answer_report_question(req.report_payload, req.question)
     return api_success({"answer": answer})
 
@@ -616,16 +719,91 @@ async def get_report_source_snippet(req: EvidenceSnippetRequest):
 # ─── Stream Review (SSE) ───────────────────────────────
 
 @app.post("/api/review/batch-stream")
-async def batch_review_stream(paths: List[str]):
+async def batch_review_stream(req: BatchReviewRequest):
     """流式批量审查 — SSE 推送"""
     async def event_stream():
+        paths = req.paths
+        if dify_workflows_available():
+            total = len(paths)
+            yield f"data: {json.dumps({'type': 'start', 'total': total})}\n\n"
+            for raw_path in paths:
+                try:
+                    payload = await asyncio.to_thread(
+                        run_dify_review_chain,
+                        raw_path,
+                        template_name=req.template,
+                        detailed_mode=bool(req.with_deep_review),
+                        review_track=req.review_track,
+                    )
+                    data = {
+                        "type": "result",
+                        "paper_title": (payload.get("meta") or {}).get("paper_title"),
+                        "score": (payload.get("meta") or {}).get("overall_score"),
+                        "duration": (payload.get("meta") or {}).get("duration"),
+                        "errors": payload.get("errors", []),
+                        "report_path": (payload.get("summary") or {}).get("formal_report_markdown_path"),
+                        "review_payload": _annotate_review_payload(payload, backend="dify_workflow_chain"),
+                    }
+                    yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+                except Exception as exc:
+                    logger.exception("Dify 批量审查失败，回退本地 runtime: %s", raw_path)
+                    path = Path(raw_path)
+                    if not path.exists():
+                        error_data = {
+                            "type": "result",
+                            "paper_title": path.stem,
+                            "score": None,
+                            "duration": None,
+                            "errors": [f"文件不存在: {raw_path}"],
+                            "report_path": None,
+                            "review_payload": None,
+                        }
+                        yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
+                        continue
+
+                    fallback_req = ReviewRequest(
+                        paper_path=raw_path,
+                        depth="deep" if req.with_deep_review else "auto",
+                        with_deep_review=bool(req.with_deep_review),
+                        review_track=req.review_track,
+                        template=req.template,
+                    )
+                    payload = await _run_local_review_payload(
+                        path,
+                        fallback_req,
+                        enable_deep_review=bool(req.with_deep_review),
+                        warning=f"Dify 批量审查失败，已自动回退本地审查: {exc}",
+                    )
+                    data = {
+                        "type": "result",
+                        "paper_title": (payload.get("meta") or {}).get("paper_title"),
+                        "score": (payload.get("meta") or {}).get("overall_score"),
+                        "duration": (payload.get("meta") or {}).get("duration"),
+                        "errors": payload.get("errors", []),
+                        "report_path": (payload.get("summary") or {}).get("formal_report_markdown_path"),
+                        "review_payload": payload,
+                    }
+                    yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+            return
+
         runtime = build_runtime(
             mode="batch",
-            enable_deep_review=True,
+            enable_deep_review=bool(req.with_deep_review),
             enable_streaming=True,
             paper_paths=paths,
+            template_name=req.template,
+            review_track=req.review_track,
         )
-        tasks = [create_paper_task(p) for p in paths]
+        tasks = [
+            create_paper_task(
+                p,
+                depth="deep" if req.with_deep_review else "auto",
+                template_name=req.template,
+                review_track=req.review_track,
+            )
+            for p in paths
+        ]
 
         total = len(tasks)
         yield f"data: {json.dumps({'type': 'start', 'total': total})}\n\n"

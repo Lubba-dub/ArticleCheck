@@ -75,6 +75,8 @@ class StreamingOrchestrator(Orchestrator):
                         paper_title=task.title or task.paper_path.stem,
                         task_id=task.task_id,
                         source_paper_path=str(task.paper_path),
+                        source_file_name=task.paper_path.name,
+                        review_track=task.review_track,
                         errors=[str(e)],
                     )
 

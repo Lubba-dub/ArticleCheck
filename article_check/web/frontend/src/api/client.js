@@ -22,11 +22,11 @@ export const api = {
   },
 
   // Review
-  review: (paperPath, template, withDeep) => request('/review', {
-    method: 'POST', body: JSON.stringify({ paper_path: paperPath, template, with_deep_review: withDeep }),
+  review: (paperPath, template, withDeep, reviewTrack = 'auto') => request('/review', {
+    method: 'POST', body: JSON.stringify({ paper_path: paperPath, template, with_deep_review: withDeep, review_track: reviewTrack, depth: withDeep ? 'deep' : 'auto' }),
   }),
-  deepReview: (paperPath, withDeep) => request('/review/deep', {
-    method: 'POST', body: JSON.stringify({ paper_path: paperPath, with_deep_review: withDeep }),
+  deepReview: (paperPath, template, reviewTrack = 'auto') => request('/review/deep', {
+    method: 'POST', body: JSON.stringify({ paper_path: paperPath, template, with_deep_review: true, review_track: reviewTrack, depth: 'deep' }),
   }),
   reportDialogue: (reportPayload, question) => request('/report/dialogue', {
     method: 'POST', body: JSON.stringify({ report_payload: reportPayload, question }),
@@ -38,10 +38,10 @@ export const api = {
   reportFileUrl: (path) => `${BASE}/report/file?path=${encodeURIComponent(path)}`,
 
   // Stream
-  batchStream: (paths) => {
+  batchStream: (paths, options = {}) => {
     return fetch(`${BASE}/review/batch-stream`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(paths),
+      body: JSON.stringify({ paths, ...options }),
     });
   },
 };

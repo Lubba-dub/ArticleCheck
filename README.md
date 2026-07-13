@@ -1,151 +1,154 @@
-# Article Check Platform Minimal
+# ArticleCheck
 
-面向项目方平台交付的最小版本，当前只保留以下主线：
+面向高校论文送审前审改场景的审计型论文审查系统。当前版本以 `FastAPI + React WebDemo + Dify Workflow` 为主线，强调两类能力：
 
-- `WebDemo` 前端工作台
-- `FastAPI` 网关与报告接口
-- `Dify Service API` 多应用编排
-- 项目方官方认证接入
-- `Docker / Docker Compose` 托管部署
+- **确定性审查**：本地规则引擎负责 `DOCX/PDF/TEX` 的结构与版式检查、参考文献元数据核验、证据落点。
+- **Dify 编排审查**：Dify 负责文档归一化、弱格式判断、风险归纳、正式报告生成和报告问答。
 
-## 当前定位
+## 当前能力
 
-本仓库不再保留历史性的多入口形态，只服务于线上平台部署目标：
+- 单篇与批量论文上传、审查、流式结果推送
+- 本科 / 硕士论文显式分类审查
+- `DOCX` 版式检查：页边距、字号、行距、图表标题位置、封面关键元素
+- 参考文献核验：DOI 校验、Crossref / OpenAlex 题名检索、可疑条目标记
+- 报告问答、原文证据联动、打印版报告 HTML 预览
+- Docker / Docker Compose 一键部署
 
-- 论文上传与批量审查
-- 格式核查与参考文献核验
-- 审改建议与正式报告生成
-- 报告问答与证据定位
-- 官方认证接入
+## 架构概览
 
-## 目录
+```text
+WebDemo (React)
+    -> FastAPI Gateway
+        -> Local Rule Engine (format / reference / evidence)
+        -> Dify Workflows (document read / format review / reference verify / hallucination review / report generation / report qa)
+        -> Report Renderer (HTML report / source snippet / Q&A)
+```
+
+主设计文档：
+
+- `docs/dify-driven-review-architecture.md`
+- `docs/dify-driven-format-hallucination-redesign.md`
+- `docs/dify-workflow-optimization-architecture.md`
+
+## 仓库结构
 
 ```text
 article_check/
-├── web/                      # FastAPI + React WebDemo
-├── runtime.py                # 审查运行时聚合层
-├── pipeline/                 # 审查主流程
-├── references/               # 参考文献审查
-├── rules/                    # 模板与格式规则
-├── llm/client/dify.py        # Dify API 客户端
-└── config/settings.py        # 平台配置
-
-docs/
-└── dify-driven-review-architecture.md
-
-Dockerfile
-docker-compose.yml
-nginx.conf
-.env.docker
+├── article_check/                 # 后端主代码
+│   ├── web/                       # FastAPI + React 前端
+│   ├── pipeline/                  # 审查主流程与 worker
+│   ├── rules/                     # 本地格式规则与 DOCX 检查器
+│   ├── references/                # 参考文献抽取与核验
+│   ├── mcp/tools/                 # Harness / MCP 工具封装
+│   ├── runtime.py                 # 审查运行时聚合层
+│   └── dify_review.py             # Dify 主链编排
+├── dify_dsl/                      # 项目使用的 Dify 工作流 DSL
+├── docs/                          # 架构与设计文档
+├── test_fixtures/                 # 本地调试样例（默认不进 Docker）
+├── 北师大论文格式要求/              # 本科 / 研究生规则资产与结构化 JSON
+├── Dockerfile
+├── docker-compose.yml
+├── dify_api.example.md            # Dify 工作流绑定模板（请复制为本地 dify_api.md）
+└── README.md
 ```
 
-## 快速启动
+## 快速开始
 
-1. 复制环境变量模板
+### 1. 安装依赖
 
 ```bash
-cp .env.docker .env
+pip install -r requirements.txt
+cd article_check/web/frontend
+npm install
 ```
 
-2. 至少配置以下变量
+### 2. 配置环境
 
-```env
-ARTICLE_CHECK_AI_PROVIDER=dify
-DIFY_BASE_URL=https://your-dify-host/v1
-DIFY_API_KEY=app-your-key
-DIFY_APP_TYPE=workflow
+复制环境变量模板：
+
+```bash
+cp .env.example .env
 ```
 
-3. 启动 Docker
+复制 Dify 绑定模板：
+
+```bash
+cp dify_api.example.md dify_api.md
+```
+
+然后在本地填写：
+
+- `DIFY_BASE_URL`
+- 各工作流 `API Key`
+- 各工作流 `Workflow ID / URL`
+
+`dify_api.md` 已加入 `.gitignore`，不会提交到仓库。
+
+### 3. 启动后端与前端
+
+后端：
+
+```bash
+python -m article_check.web.server
+```
+
+前端：
+
+```bash
+cd article_check/web/frontend
+npm run dev
+```
+
+默认访问：
+
+- `http://127.0.0.1:8765` 后端
+- `http://127.0.0.1:5173` 前端开发环境
+
+## Docker 部署
 
 ```bash
 docker compose --env-file .env.docker build
 docker compose --env-file .env.docker up -d
 ```
 
-4. 验证
+验证接口：
 
 ```bash
 curl http://127.0.0.1:3000/api/health
 curl http://127.0.0.1:3000/api/status
 ```
 
-## 官方认证
+说明：
 
-- 前端已在 `article_check/web/frontend/index.html` 注入 `auth.js`
-- Nginx 已代理 `/prod-api/*` 到项目方认证链路
-- 本地 Docker 可用于触发认证流程验证
-- 完整登录闭环需部署在项目方平台域名或同一网关下
+- Docker 镜像内默认复制 `dify_api.example.md`
+- 生产环境请通过挂载或镜像外注入真实 `dify_api.md`
+- `reports/`、`uploads/` 通过 volume 持久化
 
-## Dify 主线
+## Dify 工作流
 
-建议采用以下 Dify 分层：
+当前仓库保留的项目工作流 DSL：
 
-- `Document Read Workflow`
-- `Format Review Workflow`
-- `Reference Review Workflow`
-- `Report Generation Workflow`
-- `Report Chat`
+- `articlecheck_document_read_workflow.yml`
+- `articlecheck_format_review_workflow.yml`
+- `articlecheck_reference_verify_workflow.yml`
+- `articlecheck_hallucination_review_workflow.yml`
+- `articlecheck_report_generation_workflow.yml`
+- `articlecheck_report_qa_workflow.yml`
+- `文本情感分析工作流.yml`（当前实例导出的母版样例）
 
-详细方案见：
+这些 DSL 只保留项目主线资产；社区调研样例与临时实验文件已从仓库主结构中移出。
 
-- `docs/dify-driven-review-architecture.md`
-- `docs/dify-migration-implementation.md`
+## 当前边界
 
-## 当前交付边界
+- `PDF` 版式检查仍弱于 `DOCX`，后续建议接入更强的结构化解析器
+- “文献幻觉”当前已经支持 DOI / 题名 / 作者 / 年份核验，但尚未做到全文级 claim-to-source 对齐
+- Dify 工作流导入前仍需按你的实例模型、变量名和插件配置做最终绑定
 
-当前最小版本已覆盖：
+## 建议的下一步
 
-- WebDemo 页面托管
-- FastAPI 网关
-- Dify 代理接入
-- 官方认证脚本接入
-- Docker 化部署
-
-仍需线上联调的内容：
-
-- 真实 Dify App Key 与变量映射
-- 项目方平台域名下的 OAuth/SSO 回调
-- 最终上线环境的网关策略
-
-### Web
-- 已启动并验证 `/api/health`
-- 已验证 `/api/review`
-- 已验证 `/api/review/deep`
-- 已验证 `/api/report/dialogue`
-
-### VSCode 插件
-- 已验证 `npm run compile`
-- 已补齐 `npm run package`
-- 已配置 `.vscodeignore`
-- 已具备打包 `.vsix` 所需脚本
-
-## 当前边界与注意事项
-
-- `ContentWorker` 的深审依赖 DeepSeek API，如未配置 API Key 会跳过内容审查
-- 批量任务当前的 `workflow.graph` 在没有逐篇 checkpoint 时使用推断图兜底
-- VSCode 插件目前已具备工作台和树视图，但还没有接入 Problems/Diagnostics 面板
-- 自动修正当前主要覆盖 Word，LaTeX 自动修正仍未形成完整 patch 闭环
-
-## 下一步建议
-
-如果继续推进，建议优先做：
-- 批量任务逐论文 checkpoint / 事件流
-- Evidence 到 VSCode Diagnostics / Problems 的映射
-- 正式报告模板向高校论文审查公文格式继续靠拢
-- 自动修正闭环：建议 -> patch -> re-check -> 复验
-
-## 参考项目
-
-本项目在设计上参考过以下开源项目或方向：
-- coarse
-- reviewer2
-- Loupe
-- ScholarFlow
-- PaperSeek
-- CitationClaw
-- athena-loops
-- LangGraph / Durable Workflow 类模式
+- 引入统一 `Evidence Bundle`，把解析结果、规则证据和 Dify 上下文收束到一套 JSON 契约
+- 为 `PDF` 接入更强的版面结构解析
+- 将参考文献快诊断升级为本地缓存 + 离线索引 + 在线补查的级联核验
 
 ## 许可证
 

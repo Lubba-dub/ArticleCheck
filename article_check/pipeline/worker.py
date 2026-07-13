@@ -18,6 +18,7 @@ from article_check.core.harness.base import Harness, HarnessContext
 from article_check.core.worktree.manager import WorktreeContext
 from article_check.pipeline.models import PaperTask, WorkerResult
 from article_check.llm import create_ai_client
+from article_check.utils.file_utils import detect_file_type, extract_text_from_docx, extract_text_from_pdf, read_paper_content
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,10 @@ class FormatWorker(Worker):
         elif file_type == "docx":
             tool = self.harness.get_tool("check_docx_format")
             if tool and tool.fn:
-                docx_issues = tool.fn(file_path=str(ctx.paper_copy))
+                docx_issues = tool.fn(
+                    file_path=str(ctx.paper_copy),
+                    review_track=task.review_track,
+                )
                 issues.extend(docx_issues or [])
 
         # 2. 结构完整性检查
@@ -80,6 +84,7 @@ class FormatWorker(Worker):
             struct_issues = tool.fn(
                 file_path=str(ctx.paper_copy),
                 file_type=file_type,
+                review_track=task.review_track,
             )
             if struct_issues:
                 issues.extend(struct_issues.get("issues", []))
@@ -116,8 +121,20 @@ class ContentWorker(Worker):
     ) -> WorkerResult:
         logger.info(f"[{task.task_id}] ContentWorker 开始")
 
-        # 读取论文内容
-        paper_text = ctx.paper_copy.read_text(encoding="utf-8", errors="replace")
+        # 读取论文内容，避免把 DOCX/PDF 当普通文本直接解码。
+        paper_text = self._read_paper_text(ctx.paper_copy, task.file_type)
+        if not paper_text.strip():
+            return WorkerResult(
+                success=True,
+                worker_name=self.name,
+                data={
+                    "score": 0.0,
+                    "issues": [],
+                    "summary": "未能提取到可供深度审查的论文正文",
+                },
+                issues=[],
+                score=0.0,
+            )
 
         # 结构化输出 schema — 减少 completion tokens
         schema = {
@@ -139,7 +156,7 @@ class ContentWorker(Worker):
                         "type": "object",
                         "properties": {
                             "section": {"type": "string"},
-                            "type": {"type": "string", "enum": ["logic", "clarity", "completeness", "methodology", "result"]},
+                            "type": {"type": "string", "enum": ["logic", "clarity", "completeness", "methodology", "result", "citation_support", "claim_consistency", "structure_support"]},
                             "severity": {"type": "string", "enum": ["minor", "major", "critical"]},
                             "description": {"type": "string"},
                             "suggestion": {"type": "string"}
@@ -168,8 +185,12 @@ class ContentWorker(Worker):
             messages = [
                 {
                     "role": "system",
-                    "content": f"""你是一个学术论文审查专家，负责审查 {section['name']} 部分。
-请严格按 JSON Schema 输出，只给出客观、具体的批评意见。"""
+                    "content": (
+                        f"你是一个学术论文深度审查专家，负责审查 {section['name']} 部分。"
+                        f" 当前论文审查轨道为 {task.review_track or 'auto'}。"
+                        " 除了逻辑与完整性，还要关注论断是否有证据支撑、是否存在章节承诺与正文内容不一致、是否有引用支撑不足。"
+                        " 请严格按 JSON Schema 输出，只给出客观、具体、可复核的批评意见。"
+                    )
                 },
                 {
                     "role": "user",
@@ -231,6 +252,14 @@ class ContentWorker(Worker):
             sections.append(current)
 
         return sections
+
+    def _read_paper_text(self, path, file_type: str = "") -> str:
+        detected_type = file_type or detect_file_type(path)
+        if detected_type == "docx":
+            return extract_text_from_docx(path)
+        if detected_type == "pdf":
+            return extract_text_from_pdf(path)
+        return read_paper_content(path)
 
 
 class ReferenceWorker(Worker):
@@ -315,6 +344,15 @@ class ReferenceWorker(Worker):
                     )
                 except Exception as exc:
                     logger.warning(f"[{task.task_id}] 参考文献质量抽样失败 #{index + 1}: {exc}")
+
+        invalid_quality = [item for item in quality_checks if not item.get("exists", True) or item.get("doi_verified") is False]
+        if invalid_quality:
+            issues.append({
+                "type": "reference_verification_risk",
+                "severity": "major",
+                "description": f"抽样核验中发现 {len(invalid_quality)} 条参考文献存在真实性或元数据异常。",
+                "suggestion": "请逐条复核题名、作者、年份与 DOI，确认不存在伪造或错引条目。",
+            })
 
         score = cross_result.get("score")
         if score is None:

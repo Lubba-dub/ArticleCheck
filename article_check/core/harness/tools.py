@@ -120,6 +120,11 @@ def create_format_tools() -> Dict[str, ToolSpec]:
             "template_path": {
                 "type": "string",
                 "description": "可选模板路径，用于对比样式一致性"
+            },
+            "review_track": {
+                "type": "string",
+                "enum": ["auto", "undergraduate", "graduate"],
+                "description": "审查轨道：本科或研究生"
             }
         },
         required=["file_path"],
@@ -144,6 +149,11 @@ def create_format_tools() -> Dict[str, ToolSpec]:
                 "type": "array",
                 "items": {"type": "string"},
                 "description": "期望的章节列表"
+            },
+            "review_track": {
+                "type": "string",
+                "enum": ["auto", "undergraduate", "graduate"],
+                "description": "审查轨道：本科或研究生"
             }
         },
         required=["file_path", "file_type"],

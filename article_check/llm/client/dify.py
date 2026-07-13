@@ -11,7 +11,9 @@ from __future__ import annotations
 import json
 import logging
 import re
+import socket
 import time
+import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -21,6 +23,65 @@ from article_check.config.settings import config
 from article_check.llm.client.deepseek import LLMResponse
 
 logger = logging.getLogger(__name__)
+
+
+# #region debug-point A:dify-runtime-observe
+def _debug_server_config() -> tuple[str, str]:
+    url = "http://host.docker.internal:7777/event"
+    session_id = "dify-ipv4-egress"
+    env_path = Path(".dbg/dify-ipv4-egress.env")
+    try:
+        if env_path.exists():
+            content = env_path.read_text(encoding="utf-8")
+            for line in content.splitlines():
+                if line.startswith("DEBUG_SERVER_URL="):
+                    url = line.split("=", 1)[1].strip() or url
+                elif line.startswith("DEBUG_SESSION_ID="):
+                    session_id = line.split("=", 1)[1].strip() or session_id
+    except Exception:
+        pass
+    return url, session_id
+
+
+def _debug_post(hypothesis_id: str, location: str, msg: str, data: Optional[Dict[str, Any]] = None) -> None:
+    try:
+        url, session_id = _debug_server_config()
+        payload = {
+            "sessionId": session_id,
+            "runId": "pre-fix",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "msg": f"[DEBUG] {msg}",
+            "data": data or {},
+            "ts": int(time.time() * 1000),
+        }
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=2).read()
+    except Exception:
+        pass
+
+
+def _debug_dns_snapshot(hostname: str) -> Dict[str, Any]:
+    snapshot: Dict[str, Any] = {"hostname": hostname}
+    try:
+        snapshot["ipv4"] = sorted({item[4][0] for item in socket.getaddrinfo(hostname, 443, socket.AF_INET, socket.SOCK_STREAM)})
+    except Exception as exc:
+        snapshot["ipv4_error"] = str(exc)
+    try:
+        snapshot["ipv6"] = sorted({item[4][0] for item in socket.getaddrinfo(hostname, 443, socket.AF_INET6, socket.SOCK_STREAM)})
+    except Exception as exc:
+        snapshot["ipv6_error"] = str(exc)
+    return snapshot
+
+
+def _debug_host_from_url(url: str) -> str:
+    return url.split("//", 1)[-1].split("/", 1)[0].strip()
+# #endregion
 
 
 class DifyClient:
@@ -53,6 +114,19 @@ class DifyClient:
                 "Content-Type": "application/json",
             },
         )
+        # #region debug-point A:dify-client-init
+        _debug_post(
+            "A",
+            "article_check.llm.client.dify:DifyClient.__init__",
+            "initialized dify client",
+            {
+                "base_url": self.base_url,
+                "app_type": self.app_type,
+                "response_mode": self.response_mode,
+                "dns": _debug_dns_snapshot(_debug_host_from_url(self.base_url)),
+            },
+        )
+        # #endregion
 
         if not self.api_key:
             logger.warning("DIFY_API_KEY 未配置。")
@@ -170,16 +244,75 @@ class DifyClient:
 
     def _post_json(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         try:
+            # #region debug-point B:dify-request-start
+            _debug_post(
+                "B",
+                "article_check.llm.client.dify:DifyClient._post_json",
+                "sending dify request",
+                {
+                    "endpoint": endpoint,
+                    "base_url": self.base_url,
+                    "app_type": self.app_type,
+                    "response_mode": payload.get("response_mode"),
+                    "input_keys": sorted((payload.get("inputs") or {}).keys()),
+                },
+            )
+            # #endregion
             response = self._client.post(endpoint, json=payload)
             response.raise_for_status()
+            # #region debug-point C:dify-request-success
+            _debug_post(
+                "C",
+                "article_check.llm.client.dify:DifyClient._post_json",
+                "dify request succeeded",
+                {
+                    "endpoint": endpoint,
+                    "status_code": response.status_code,
+                },
+            )
+            # #endregion
             return response.json()
         except httpx.TimeoutException:
+            # #region debug-point D:dify-timeout
+            _debug_post(
+                "D",
+                "article_check.llm.client.dify:DifyClient._post_json",
+                "dify request timed out",
+                {"endpoint": endpoint, "base_url": self.base_url},
+            )
+            # #endregion
             logger.error("Dify API 请求超时")
             raise
         except httpx.HTTPStatusError as exc:
+            # #region debug-point D:dify-http-error
+            _debug_post(
+                "D",
+                "article_check.llm.client.dify:DifyClient._post_json",
+                "dify request returned http error",
+                {
+                    "endpoint": endpoint,
+                    "status_code": exc.response.status_code,
+                    "body": exc.response.text[:500],
+                },
+            )
+            # #endregion
             logger.error("Dify API HTTP 错误: %s %s", exc.response.status_code, exc.response.text)
             raise
         except Exception as exc:
+            # #region debug-point B:dify-network-error
+            _debug_post(
+                "B",
+                "article_check.llm.client.dify:DifyClient._post_json",
+                "dify request failed before response",
+                {
+                    "endpoint": endpoint,
+                    "base_url": self.base_url,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                    "dns": _debug_dns_snapshot(_debug_host_from_url(self.base_url)),
+                },
+            )
+            # #endregion
             logger.error("Dify API 请求失败: %s", exc)
             raise
 

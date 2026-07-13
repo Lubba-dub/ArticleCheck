@@ -71,6 +71,23 @@ def extract_text_from_pdf(path: Path) -> str:
     return ""
 
 
+def extract_text_from_docx(path: Path) -> str:
+    """
+    从 DOCX 提取纯文本。
+
+    优先保留段落边界，避免将 Word 文档按 zip 二进制直接读取。
+    """
+    try:
+        from docx import Document
+    except ImportError:
+        logger.warning("DOCX 解析库未安装。安装: pip install python-docx")
+        return ""
+
+    doc = Document(str(path))
+    paragraphs = [para.text.strip() for para in doc.paragraphs if para.text and para.text.strip()]
+    return "\n".join(paragraphs)
+
+
 def find_papers(
     directory: str,
     recursive: bool = True,

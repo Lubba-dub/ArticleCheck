@@ -6,6 +6,8 @@ API 调用成本低（免费额度），少量 token 用于结果解析。
 import logging
 from typing import Any, Dict, List, Optional
 
+from article_check.references import ReferenceValidator
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,11 +24,11 @@ def verify_doi(doi: str) -> Dict[str, Any]:
         文献元数据
     """
     logger.info(f"verify_doi: {doi}")
-    # TODO: 调用 CrossRef / Semantic Scholar API
+    result = ReferenceValidator.verify_doi(doi)
     return {
         "doi": doi,
-        "verified": False,
-        "message": "API 调用尚未实现，需要配置学术 API 密钥",
+        "verified": result.get("valid", False),
+        **result,
     }
 
 
@@ -47,12 +49,11 @@ def check_reference_exists(
         验证结果
     """
     logger.info(f"check_reference_exists: {title[:50]}...")
-    # TODO: 调用 Semantic Scholar search API
-    return {
-        "title": title,
-        "exists": False,
-        "message": "API 调用尚未实现",
-    }
+    return ReferenceValidator.check_reference_exists(
+        title,
+        authors=[item.strip() for item in (authors or "").split(",") if item.strip()],
+        year=year,
+    )
 
 
 def check_citation_accuracy(

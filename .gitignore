@@ -25,6 +25,10 @@ reports/
 .worktrees/
 .cache/
 .article_check/
+.dbg/
+.trae/
+dify_api.md
+debug-*.md
 
 # Large binary / design docs
 *.pptx
